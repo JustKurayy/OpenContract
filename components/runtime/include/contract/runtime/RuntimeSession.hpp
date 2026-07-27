@@ -3,6 +3,7 @@
 #include <contract/core/Result.hpp>
 #include <contract/runtime/RuntimeCommand.hpp>
 #include <contract/runtime/RuntimeEventJournal.hpp>
+#include <contract/runtime/RuntimeObservation.hpp>
 #include <contract/runtime/RuntimeSystem.hpp>
 #include <contract/runtime/RuntimeWorld.hpp>
 #include <contract/runtime/SimulationClock.hpp>
@@ -66,6 +67,7 @@ public:
 
     void clear_pending_commands() noexcept;
     [[nodiscard]] std::vector<SequencedRuntimeEvent> drain_events();
+    [[nodiscard]] RuntimeObservation observe() const;
 
     [[nodiscard]] const RuntimeWorld& world() const noexcept;
     [[nodiscard]] std::span<const SequencedRuntimeEvent>

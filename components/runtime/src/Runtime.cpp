@@ -209,14 +209,18 @@ int run_runtime(
         output << 's';
     }
     if (options.mission.has_value()) {
+        const auto observation = session->observe();
         output << "; selected mission " << *options.mission;
         output << "; initialized "
-               << session->world().entities().size()
+               << observation.entities.size()
                << " entities and "
-               << session->world().objectives().size()
+               << observation.objectives.size()
                << " objectives; simulation step "
-               << initial_simulation_step.count()
-               << " ns";
+               << observation.simulation_step.count()
+               << " ns; observation tick "
+               << observation.completed_ticks
+               << ", next event sequence "
+               << observation.next_event_sequence;
     }
     output << '\n';
     context.diagnostics.emit(
