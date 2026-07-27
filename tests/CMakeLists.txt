@@ -80,6 +80,9 @@ target_link_libraries(contract-simulation-clock-tests PRIVATE OpenContract::runt
 contract_add_test(contract-runtime-session-tests runtime/RuntimeSessionTests.cpp)
 target_link_libraries(contract-runtime-session-tests PRIVATE OpenContract::runtime-support)
 
+contract_add_test(contract-runtime-system-tests runtime/RuntimeSystemTests.cpp)
+target_link_libraries(contract-runtime-system-tests PRIVATE OpenContract::runtime-support)
+
 contract_add_test(contract-launcher-tests launcher/LauncherTests.cpp)
 target_link_libraries(contract-launcher-tests PRIVATE OpenContract::launcher-support)
 

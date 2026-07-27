@@ -8,10 +8,12 @@ RuntimeSession::RuntimeSession(
     RuntimeWorld world,
     FixedStepClock clock,
     std::size_t maximum_pending_commands,
-    std::size_t maximum_retained_events)
+    std::size_t maximum_retained_events,
+    std::size_t maximum_system_commands_per_tick)
     : world_(std::move(world)),
       clock_(std::move(clock)),
       maximum_pending_commands_(maximum_pending_commands),
+      maximum_system_commands_per_tick_(maximum_system_commands_per_tick),
       event_journal_(maximum_retained_events) {}
 
 core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
@@ -19,7 +21,8 @@ core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
     std::chrono::nanoseconds simulation_step,
     std::size_t maximum_catch_up_ticks,
     std::size_t maximum_pending_commands,
-    std::size_t maximum_retained_events) {
+    std::size_t maximum_retained_events,
+    std::size_t maximum_system_commands_per_tick) {
     auto clock = FixedStepClock::create(
         simulation_step,
         maximum_catch_up_ticks);
@@ -30,6 +33,7 @@ core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
                 clock.error(),
                 std::nullopt,
                 std::nullopt,
+                std::nullopt,
                 clock.error().message
             });
     }
@@ -38,7 +42,8 @@ core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
             std::move(world),
             std::move(clock.value()),
             maximum_pending_commands,
-            maximum_retained_events));
+            maximum_retained_events,
+            maximum_system_commands_per_tick));
 }
 
 core::Result<void, RuntimeSessionError> RuntimeSession::enqueue(
@@ -47,6 +52,7 @@ core::Result<void, RuntimeSessionError> RuntimeSession::enqueue(
         return core::Result<void, RuntimeSessionError>::failure(
             {
                 RuntimeSessionErrorCode::pending_command_limit_exceeded,
+                std::nullopt,
                 std::nullopt,
                 std::nullopt,
                 std::nullopt,
@@ -59,6 +65,12 @@ core::Result<void, RuntimeSessionError> RuntimeSession::enqueue(
 
 core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance(
     std::chrono::nanoseconds elapsed) {
+    return advance(elapsed, {});
+}
+
+core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance(
+    std::chrono::nanoseconds elapsed,
+    std::span<const RuntimeSystem* const> systems) {
     auto candidate_clock = clock_;
     auto timing = candidate_clock.advance(elapsed);
     if (!timing.has_value()) {
@@ -66,6 +78,7 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
             {
                 RuntimeSessionErrorCode::clock_advance_failed,
                 timing.error(),
+                std::nullopt,
                 std::nullopt,
                 std::nullopt,
                 timing.error().message
@@ -79,26 +92,86 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
     }
 
     auto candidate_world = world_;
-    const auto applied = command_processor_.apply_atomic(
+    std::vector<RuntimeEvent> events;
+    std::size_t command_count = pending_commands_.size();
+
+    const auto pending_result = command_processor_.apply_atomic(
         candidate_world,
         pending_commands_,
         maximum_pending_commands_);
-    if (!applied.has_value()) {
+    if (!pending_result.has_value()) {
         return core::Result<RuntimeSessionAdvance, RuntimeSessionError>::failure(
             {
                 RuntimeSessionErrorCode::command_batch_failed,
                 std::nullopt,
-                applied.error(),
+                pending_result.error(),
                 std::nullopt,
-                applied.error().message
+                std::nullopt,
+                pending_result.error().message
             });
     }
+    events.insert(
+        events.end(),
+        pending_result.value().events.begin(),
+        pending_result.value().events.end());
 
-    const auto journal_result = event_journal_.append(applied.value().events);
+    for (std::size_t tick_offset = 0;
+         tick_offset < timing.value().tick_count;
+         ++tick_offset) {
+        const RuntimeSystemContext context{
+            timing.value().first_tick +
+                static_cast<std::uint64_t>(tick_offset),
+            candidate_clock.step()
+        };
+        auto system_commands = system_coordinator_.evaluate(
+            candidate_world,
+            context,
+            systems,
+            maximum_system_commands_per_tick_);
+        if (!system_commands.has_value()) {
+            return core::Result<
+                RuntimeSessionAdvance,
+                RuntimeSessionError>::failure(
+                {
+                    RuntimeSessionErrorCode::system_evaluation_failed,
+                    std::nullopt,
+                    std::nullopt,
+                    system_commands.error(),
+                    std::nullopt,
+                    system_commands.error().message
+                });
+        }
+
+        const auto system_result = command_processor_.apply_atomic(
+            candidate_world,
+            system_commands.value(),
+            maximum_system_commands_per_tick_);
+        if (!system_result.has_value()) {
+            return core::Result<
+                RuntimeSessionAdvance,
+                RuntimeSessionError>::failure(
+                {
+                    RuntimeSessionErrorCode::system_command_batch_failed,
+                    std::nullopt,
+                    system_result.error(),
+                    std::nullopt,
+                    std::nullopt,
+                    system_result.error().message
+                });
+        }
+        command_count += system_commands.value().size();
+        events.insert(
+            events.end(),
+            system_result.value().events.begin(),
+            system_result.value().events.end());
+    }
+
+    const auto journal_result = event_journal_.append(events);
     if (!journal_result.has_value()) {
         return core::Result<RuntimeSessionAdvance, RuntimeSessionError>::failure(
             {
                 RuntimeSessionErrorCode::event_journal_failed,
+                std::nullopt,
                 std::nullopt,
                 std::nullopt,
                 journal_result.error(),
@@ -106,7 +179,6 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
             });
     }
 
-    const auto command_count = pending_commands_.size();
     world_ = std::move(candidate_world);
     clock_ = std::move(candidate_clock);
     pending_commands_.clear();
@@ -114,7 +186,7 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
         {
             timing.value(),
             command_count,
-            std::move(applied.value().events)
+            std::move(events)
         });
 }
 
