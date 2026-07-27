@@ -35,6 +35,7 @@ enum class RuntimeExitCode : int {
     installation_invalid = 4,
     mod_set_invalid = 5,
     mission_invalid = 6,
+    session_invalid = 7,
     not_implemented = 10
 };
 

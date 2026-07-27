@@ -1,0 +1,70 @@
+#pragma once
+
+#include <contract/core/Result.hpp>
+#include <contract/runtime/RuntimeCommand.hpp>
+#include <contract/runtime/RuntimeWorld.hpp>
+#include <contract/runtime/SimulationClock.hpp>
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace contract::runtime {
+
+enum class RuntimeSessionErrorCode {
+    invalid_clock,
+    pending_command_limit_exceeded,
+    clock_advance_failed,
+    command_batch_failed
+};
+
+struct RuntimeSessionError {
+    RuntimeSessionErrorCode code{RuntimeSessionErrorCode::invalid_clock};
+    std::optional<SimulationClockError> clock_error;
+    std::optional<RuntimeCommandError> command_error;
+    std::string message;
+};
+
+struct RuntimeSessionAdvance {
+    SimulationAdvance timing;
+    std::size_t commands_applied{0};
+    std::vector<RuntimeEvent> events;
+};
+
+class RuntimeSession {
+public:
+    [[nodiscard]] static core::Result<RuntimeSession, RuntimeSessionError> create(
+        RuntimeWorld world,
+        std::chrono::nanoseconds simulation_step,
+        std::size_t maximum_catch_up_ticks,
+        std::size_t maximum_pending_commands);
+
+    [[nodiscard]] core::Result<void, RuntimeSessionError> enqueue(
+        RuntimeCommand command);
+    [[nodiscard]] core::Result<RuntimeSessionAdvance, RuntimeSessionError> advance(
+        std::chrono::nanoseconds elapsed);
+
+    void clear_pending_commands() noexcept;
+
+    [[nodiscard]] const RuntimeWorld& world() const noexcept;
+    [[nodiscard]] std::size_t pending_command_count() const noexcept;
+    [[nodiscard]] std::uint64_t completed_ticks() const noexcept;
+    [[nodiscard]] std::chrono::nanoseconds clock_remainder() const noexcept;
+
+private:
+    RuntimeSession(
+        RuntimeWorld world,
+        FixedStepClock clock,
+        std::size_t maximum_pending_commands);
+
+    RuntimeWorld world_;
+    FixedStepClock clock_;
+    std::size_t maximum_pending_commands_{0};
+    std::vector<RuntimeCommand> pending_commands_;
+    RuntimeCommandProcessor command_processor_;
+};
+
+}

@@ -1,6 +1,9 @@
 add_library(contract-runtime-support
     src/Runtime.cpp
-    src/RuntimeWorld.cpp)
+    src/RuntimeCommand.cpp
+    src/RuntimeSession.cpp
+    src/RuntimeWorld.cpp
+    src/SimulationClock.cpp)
 add_library(OpenContract::runtime-support ALIAS contract-runtime-support)
 
 target_include_directories(contract-runtime-support PUBLIC

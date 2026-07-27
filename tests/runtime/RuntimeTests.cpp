@@ -208,6 +208,9 @@ int main() {
     CONTRACT_EXPECT(
         runtime_output.str().find("initialized 0 entities and 0 objectives") !=
         std::string::npos);
+    CONTRACT_EXPECT(
+        runtime_output.str().find("simulation step 16666667 ns") !=
+        std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());
     CONTRACT_EXPECT_EQ(

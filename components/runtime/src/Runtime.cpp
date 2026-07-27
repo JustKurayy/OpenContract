@@ -1,12 +1,22 @@
 #include <contract/runtime/Runtime.hpp>
 
 #include <contract/modding/PackageSet.hpp>
+#include <contract/runtime/RuntimeSession.hpp>
 #include <contract/runtime/RuntimeWorld.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <ostream>
 
 namespace contract::runtime {
+namespace {
+
+constexpr auto initial_simulation_step =
+    std::chrono::nanoseconds{16'666'667};
+constexpr std::size_t initial_catch_up_limit = 4;
+constexpr std::size_t initial_pending_command_limit = 1024;
+
+}
 
 std::optional<RuntimeOptions> parse_runtime_options(
     const std::vector<std::string>& arguments,
@@ -139,7 +149,7 @@ int run_runtime(
         package_set = std::move(loaded.value());
     }
 
-    std::optional<RuntimeWorld> world;
+    std::optional<RuntimeSession> session;
     if (options.mission.has_value()) {
         if (!package_set.has_value()) {
             context.diagnostics.emit(
@@ -167,7 +177,26 @@ int run_runtime(
             errors << "[runtime.mission] " << built.error().message << '\n';
             return static_cast<int>(RuntimeExitCode::mission_invalid);
         }
-        world = std::move(built.value());
+        auto created_session = RuntimeSession::create(
+            std::move(built.value()),
+            initial_simulation_step,
+            initial_catch_up_limit,
+            initial_pending_command_limit);
+        if (!created_session.has_value()) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.session",
+                    created_session.error().message,
+                    std::nullopt,
+                    std::nullopt
+                });
+            errors << "[runtime.session] "
+                   << created_session.error().message
+                   << '\n';
+            return static_cast<int>(RuntimeExitCode::session_invalid);
+        }
+        session = std::move(created_session.value());
     }
 
     const auto package_count = package_set.has_value()
@@ -182,10 +211,12 @@ int run_runtime(
     if (options.mission.has_value()) {
         output << "; selected mission " << *options.mission;
         output << "; initialized "
-               << world->entities().size()
+               << session->world().entities().size()
                << " entities and "
-               << world->objectives().size()
-               << " objectives";
+               << session->world().objectives().size()
+               << " objectives; simulation step "
+               << initial_simulation_step.count()
+               << " ns";
     }
     output << '\n';
     context.diagnostics.emit(

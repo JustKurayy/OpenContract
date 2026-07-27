@@ -23,6 +23,9 @@ target_link_libraries(contract-installation-tests PRIVATE OpenContract::installa
 contract_add_test(contract-binaryio-tests binaryio/BinaryReaderTests.cpp)
 target_link_libraries(contract-binaryio-tests PRIVATE OpenContract::binaryio)
 
+contract_add_test(contract-source-binary-reader-tests binaryio/SourceBinaryReaderTests.cpp)
+target_link_libraries(contract-source-binary-reader-tests PRIVATE OpenContract::binaryio)
+
 contract_add_test(contract-formats-tests formats/FormatProbeTests.cpp)
 target_link_libraries(contract-formats-tests PRIVATE OpenContract::formats)
 
@@ -56,11 +59,23 @@ target_link_libraries(contract-package-resolver-tests PRIVATE OpenContract::modd
 contract_add_test(contract-package-set-tests modding/PackageSetTests.cpp)
 target_link_libraries(contract-package-set-tests PRIVATE OpenContract::modding)
 
+contract_add_test(contract-package-asset-source-tests modding/PackageAssetSourceTests.cpp)
+target_link_libraries(contract-package-asset-source-tests PRIVATE OpenContract::modding)
+
 contract_add_test(contract-runtime-tests runtime/RuntimeTests.cpp)
 target_link_libraries(contract-runtime-tests PRIVATE OpenContract::runtime-support)
 
 contract_add_test(contract-runtime-world-tests runtime/RuntimeWorldTests.cpp)
 target_link_libraries(contract-runtime-world-tests PRIVATE OpenContract::runtime-support)
+
+contract_add_test(contract-runtime-command-tests runtime/RuntimeCommandTests.cpp)
+target_link_libraries(contract-runtime-command-tests PRIVATE OpenContract::runtime-support)
+
+contract_add_test(contract-simulation-clock-tests runtime/SimulationClockTests.cpp)
+target_link_libraries(contract-simulation-clock-tests PRIVATE OpenContract::runtime-support)
+
+contract_add_test(contract-runtime-session-tests runtime/RuntimeSessionTests.cpp)
+target_link_libraries(contract-runtime-session-tests PRIVATE OpenContract::runtime-support)
 
 contract_add_test(contract-launcher-tests launcher/LauncherTests.cpp)
 target_link_libraries(contract-launcher-tests PRIVATE OpenContract::launcher-support)
