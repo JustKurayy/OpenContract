@@ -7,16 +7,19 @@ namespace contract::runtime {
 RuntimeSession::RuntimeSession(
     RuntimeWorld world,
     FixedStepClock clock,
-    std::size_t maximum_pending_commands)
+    std::size_t maximum_pending_commands,
+    std::size_t maximum_retained_events)
     : world_(std::move(world)),
       clock_(std::move(clock)),
-      maximum_pending_commands_(maximum_pending_commands) {}
+      maximum_pending_commands_(maximum_pending_commands),
+      event_journal_(maximum_retained_events) {}
 
 core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
     RuntimeWorld world,
     std::chrono::nanoseconds simulation_step,
     std::size_t maximum_catch_up_ticks,
-    std::size_t maximum_pending_commands) {
+    std::size_t maximum_pending_commands,
+    std::size_t maximum_retained_events) {
     auto clock = FixedStepClock::create(
         simulation_step,
         maximum_catch_up_ticks);
@@ -26,6 +29,7 @@ core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
                 RuntimeSessionErrorCode::invalid_clock,
                 clock.error(),
                 std::nullopt,
+                std::nullopt,
                 clock.error().message
             });
     }
@@ -33,7 +37,8 @@ core::Result<RuntimeSession, RuntimeSessionError> RuntimeSession::create(
         RuntimeSession(
             std::move(world),
             std::move(clock.value()),
-            maximum_pending_commands));
+            maximum_pending_commands,
+            maximum_retained_events));
 }
 
 core::Result<void, RuntimeSessionError> RuntimeSession::enqueue(
@@ -42,6 +47,7 @@ core::Result<void, RuntimeSessionError> RuntimeSession::enqueue(
         return core::Result<void, RuntimeSessionError>::failure(
             {
                 RuntimeSessionErrorCode::pending_command_limit_exceeded,
+                std::nullopt,
                 std::nullopt,
                 std::nullopt,
                 "Pending runtime command limit was reached"
@@ -60,6 +66,7 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
             {
                 RuntimeSessionErrorCode::clock_advance_failed,
                 timing.error(),
+                std::nullopt,
                 std::nullopt,
                 timing.error().message
             });
@@ -82,7 +89,20 @@ core::Result<RuntimeSessionAdvance, RuntimeSessionError> RuntimeSession::advance
                 RuntimeSessionErrorCode::command_batch_failed,
                 std::nullopt,
                 applied.error(),
+                std::nullopt,
                 applied.error().message
+            });
+    }
+
+    const auto journal_result = event_journal_.append(applied.value().events);
+    if (!journal_result.has_value()) {
+        return core::Result<RuntimeSessionAdvance, RuntimeSessionError>::failure(
+            {
+                RuntimeSessionErrorCode::event_journal_failed,
+                std::nullopt,
+                std::nullopt,
+                journal_result.error(),
+                journal_result.error().message
             });
     }
 
@@ -102,8 +122,17 @@ void RuntimeSession::clear_pending_commands() noexcept {
     pending_commands_.clear();
 }
 
+std::vector<SequencedRuntimeEvent> RuntimeSession::drain_events() {
+    return event_journal_.drain();
+}
+
 const RuntimeWorld& RuntimeSession::world() const noexcept {
     return world_;
+}
+
+std::span<const SequencedRuntimeEvent>
+RuntimeSession::retained_events() const noexcept {
+    return event_journal_.events();
 }
 
 std::size_t RuntimeSession::pending_command_count() const noexcept {

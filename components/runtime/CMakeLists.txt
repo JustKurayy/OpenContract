@@ -1,6 +1,7 @@
 add_library(contract-runtime-support
     src/Runtime.cpp
     src/RuntimeCommand.cpp
+    src/RuntimeEventJournal.cpp
     src/RuntimeSession.cpp
     src/RuntimeWorld.cpp
     src/SimulationClock.cpp)

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 
 namespace {
@@ -74,6 +75,16 @@ int main() {
     CONTRACT_EXPECT(!session.world().entities()[0].enabled);
     CONTRACT_EXPECT(session.world().all_objectives_complete());
     CONTRACT_EXPECT_EQ(session.completed_ticks(), std::uint64_t{1});
+    CONTRACT_EXPECT_EQ(session.retained_events().size(), std::size_t{2});
+    CONTRACT_EXPECT_EQ(
+        session.retained_events()[0].sequence,
+        std::uint64_t{0});
+    CONTRACT_EXPECT_EQ(
+        session.retained_events()[1].sequence,
+        std::uint64_t{1});
+    const auto drained_events = session.drain_events();
+    CONTRACT_EXPECT_EQ(drained_events.size(), std::size_t{2});
+    CONTRACT_EXPECT(session.retained_events().empty());
 
     auto rollback_session_result = runtime::RuntimeSession::create(
         make_world(),
@@ -115,6 +126,38 @@ int main() {
     CONTRACT_EXPECT_EQ(
         invalid_clock.error().code,
         runtime::RuntimeSessionErrorCode::invalid_clock);
+
+    auto event_limited_result = runtime::RuntimeSession::create(
+        make_world(),
+        10ms,
+        std::size_t{2},
+        std::size_t{2},
+        std::size_t{1});
+    CONTRACT_EXPECT(event_limited_result.has_value());
+    auto event_limited = event_limited_result.value();
+    CONTRACT_EXPECT(event_limited.enqueue(
+        runtime::SetEntityEnabledCommand{
+            scene::EntityId("entity.synthetic"),
+            false}).has_value());
+    CONTRACT_EXPECT(event_limited.enqueue(
+        runtime::CompleteObjectiveCommand{
+            mission::ObjectiveId("objective.synthetic")}).has_value());
+
+    const auto journal_failure = event_limited.advance(10ms);
+    CONTRACT_EXPECT(!journal_failure.has_value());
+    CONTRACT_EXPECT_EQ(
+        journal_failure.error().code,
+        runtime::RuntimeSessionErrorCode::event_journal_failed);
+    CONTRACT_EXPECT(journal_failure.error().event_journal_error.has_value());
+    CONTRACT_EXPECT_EQ(event_limited.completed_ticks(), std::uint64_t{0});
+    CONTRACT_EXPECT_EQ(
+        event_limited.pending_command_count(),
+        std::size_t{2});
+    CONTRACT_EXPECT(event_limited.world().entities()[0].enabled);
+    CONTRACT_EXPECT_EQ(
+        event_limited.world().objectives()[0].progress,
+        runtime::ObjectiveProgress::pending);
+    CONTRACT_EXPECT(event_limited.retained_events().empty());
 
     return test::finish();
 }

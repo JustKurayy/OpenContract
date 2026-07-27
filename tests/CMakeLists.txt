@@ -71,6 +71,9 @@ target_link_libraries(contract-runtime-world-tests PRIVATE OpenContract::runtime
 contract_add_test(contract-runtime-command-tests runtime/RuntimeCommandTests.cpp)
 target_link_libraries(contract-runtime-command-tests PRIVATE OpenContract::runtime-support)
 
+contract_add_test(contract-runtime-event-journal-tests runtime/RuntimeEventJournalTests.cpp)
+target_link_libraries(contract-runtime-event-journal-tests PRIVATE OpenContract::runtime-support)
+
 contract_add_test(contract-simulation-clock-tests runtime/SimulationClockTests.cpp)
 target_link_libraries(contract-simulation-clock-tests PRIVATE OpenContract::runtime-support)
 
