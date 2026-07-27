@@ -39,6 +39,27 @@ public:
     }
 };
 
+class ShortSuccessfulSource final
+    : public contract::datasource::IReadOnlyDataSource {
+public:
+    std::uint64_t size() const noexcept override {
+        return 4;
+    }
+
+    contract::core::Result<
+        std::vector<std::byte>,
+        contract::datasource::DataSourceError>
+    read(
+        std::uint64_t,
+        std::size_t,
+        contract::datasource::ReadBudget&) const override {
+        return contract::core::Result<
+            std::vector<std::byte>,
+            contract::datasource::DataSourceError>::success(
+            {std::byte{0x01}});
+    }
+};
+
 }
 
 int main() {
@@ -118,6 +139,17 @@ int main() {
     CONTRACT_EXPECT_EQ(
         alignment_overflow.error().code,
         binaryio::SourceBinaryErrorCode::overflow);
+
+    ShortSuccessfulSource short_source;
+    datasource::ReadBudget short_budget(4, 4);
+    binaryio::SourceBinaryReader short_reader(short_source, short_budget);
+    const auto short_read = short_reader.read_bytes(4);
+    CONTRACT_EXPECT(!short_read.has_value());
+    CONTRACT_EXPECT_EQ(
+        short_read.error().code,
+        binaryio::SourceBinaryErrorCode::source_contract_violation);
+    CONTRACT_EXPECT_EQ(short_read.error().offset, std::uint64_t{0});
+    CONTRACT_EXPECT_EQ(short_reader.offset(), std::uint64_t{0});
 
     return test::finish();
 }

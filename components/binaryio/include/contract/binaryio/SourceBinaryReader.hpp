@@ -15,7 +15,8 @@ enum class SourceBinaryErrorCode {
     end_of_source,
     overflow,
     invalid_alignment,
-    source_error
+    source_error,
+    source_contract_violation
 };
 
 struct SourceBinaryError {

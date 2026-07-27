@@ -129,6 +129,17 @@ SourceBinaryReader::read_bytes(std::size_t length) {
             SourceBinaryError>::failure(
             source_error(bytes.error()));
     }
+    if (bytes.value().size() != length) {
+        return core::Result<
+            std::vector<std::byte>,
+            SourceBinaryError>::failure(
+            {
+                SourceBinaryErrorCode::source_contract_violation,
+                offset_,
+                std::nullopt,
+                "Data source returned an unexpected byte count"
+            });
+    }
     offset_ += length64;
     return core::Result<
         std::vector<std::byte>,
