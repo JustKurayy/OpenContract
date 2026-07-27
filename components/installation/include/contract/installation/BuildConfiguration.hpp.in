@@ -1,0 +1,3 @@
+#pragma once
+
+#define CONTRACT_CONFIGURED_GAME_PATH_VALUE R"contract_path(@CONTRACT_GAME_PATH@)contract_path"

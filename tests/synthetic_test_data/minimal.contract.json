@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "package": {
+    "id": "package.synthetic",
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "metadata": {
+      "name": "Synthetic Package",
+      "author": "Synthetic Author",
+      "description": "Synthetic test content only"
+    }
+  },
+  "dependencies": [],
+  "assets": [],
+  "navigation_graphs": [],
+  "maps": [],
+  "missions": []
+}
