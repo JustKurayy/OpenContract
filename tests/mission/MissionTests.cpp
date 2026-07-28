@@ -1,6 +1,7 @@
 #include "TestSupport.hpp"
 
 #include <contract/mission/Mission.hpp>
+#include <contract/mission/SourceMissionLoader.hpp>
 
 #include <vector>
 
@@ -45,6 +46,15 @@ contract::mission::MissionDefinition valid_mission() {
 }
 
 int main() {
+    CONTRACT_EXPECT(
+        contract::mission::is_valid_source_mission_id("M00"));
+    CONTRACT_EXPECT(
+        contract::mission::is_valid_source_mission_id("custom_scene-1"));
+    CONTRACT_EXPECT(
+        !contract::mission::is_valid_source_mission_id("../M00"));
+    CONTRACT_EXPECT(
+        !contract::mission::is_valid_source_mission_id(""));
+
     using namespace contract::mission;
 
     MissionValidator validator;

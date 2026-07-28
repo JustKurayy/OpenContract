@@ -2,6 +2,7 @@
 
 #include <contract/core/Result.hpp>
 #include <contract/runtime/RuntimeHost.hpp>
+#include <contract/scene/RenderScene.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -11,6 +12,7 @@ namespace contract::runtime {
 
 struct RuntimeRunnerOptions {
     std::optional<std::uint64_t> maximum_frames;
+    const scene::RenderScene* render_scene{nullptr};
 };
 
 enum class RuntimeRunnerErrorCode {

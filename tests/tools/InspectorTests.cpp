@@ -84,13 +84,22 @@ int main() {
     std::ostringstream archive_parse_errors;
     const auto archive_options =
         contract::tools::parse_archive_inspector_options(
-            {"--archive", "C:/Synthetic Path/scene.zip", "--json"},
+            {
+                "--archive",
+                "C:/Synthetic Path/scene.zip",
+                "--primitive-entry",
+                "synthetic/scene.prm",
+                "--json"
+            },
             archive_parse_errors);
     CONTRACT_EXPECT(archive_options.has_value());
     CONTRACT_EXPECT(archive_options->json);
     CONTRACT_EXPECT_EQ(
         archive_options->archive_path.value(),
         std::filesystem::path("C:/Synthetic Path/scene.zip"));
+    CONTRACT_EXPECT_EQ(
+        archive_options->primitive_entry.value(),
+        std::string("synthetic/scene.prm"));
     CONTRACT_EXPECT(archive_parse_errors.str().empty());
 
     std::ostringstream missing_archive_errors;

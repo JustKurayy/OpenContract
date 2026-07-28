@@ -10,6 +10,7 @@ namespace contract::tools {
 
 struct ArchiveInspectorOptions {
     std::optional<std::filesystem::path> archive_path;
+    std::optional<std::string> primitive_entry;
     bool json{false};
     bool help{false};
 };

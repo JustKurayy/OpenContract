@@ -212,6 +212,14 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
         return platform_failure(
             renderer_initialized.error().message);
     }
+    if (options.render_scene != nullptr) {
+        auto uploaded = renderer.upload_scene(*options.render_scene);
+        if (!uploaded.has_value()) {
+            renderer.shutdown();
+            static_cast<void>(DestroyWindow(window));
+            return platform_failure(uploaded.error().message);
+        }
+    }
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();
 

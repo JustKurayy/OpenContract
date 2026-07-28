@@ -1,6 +1,7 @@
 #include <contract/diagnostics/DiagnosticSink.hpp>
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/installation/Installation.hpp>
+#include <contract/mission/SourceMissionLoader.hpp>
 #include <contract/platform/NativeRuntimeRunner.hpp>
 #include <contract/runtime/Runtime.hpp>
 
@@ -28,6 +29,8 @@ int main(int argc, char* argv[]) {
     const contract::filesystem::NativeReadOnlyFilesystem filesystem;
     contract::diagnostics::DiagnosticBuffer diagnostics;
     contract::platform::NativeRuntimeRunner runner;
+    const contract::mission::ReadOnlySourceMissionLoader
+        source_mission_loader;
     const contract::runtime::RuntimeContext context{
         filesystem,
         diagnostics,
@@ -35,7 +38,8 @@ int main(int argc, char* argv[]) {
         contract::installation::environment_game_path(),
         contract::installation::configured_game_path(),
         contract::installation::default_windows_probe_paths(),
-        &runner};
+        &runner,
+        &source_mission_loader};
     return contract::runtime::run_runtime(
         *options,
         context,

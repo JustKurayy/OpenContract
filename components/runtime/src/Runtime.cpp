@@ -44,6 +44,12 @@ std::optional<RuntimeOptions> parse_runtime_options(
                 return std::nullopt;
             }
             options.mission = arguments[++index];
+        } else if (argument == "--source-mission") {
+            if (index + 1 >= arguments.size()) {
+                errors << "--source-mission requires an identifier\n";
+                return std::nullopt;
+            }
+            options.source_mission = arguments[++index];
         } else if (argument == "--max-frames") {
             if (index + 1 >= arguments.size()) {
                 errors << "--max-frames requires a positive integer\n";
@@ -69,6 +75,11 @@ std::optional<RuntimeOptions> parse_runtime_options(
             return std::nullopt;
         }
     }
+    if (options.mission.has_value() &&
+        options.source_mission.has_value()) {
+        errors << "--mission and --source-mission are mutually exclusive\n";
+        return std::nullopt;
+    }
     return options;
 }
 
@@ -76,6 +87,7 @@ void print_runtime_help(std::ostream& output) {
     output
         << "Usage: contract-runtime [--game-path <directory>]"
         << " [--mod-manifest <file>]... [--mission <identifier>]"
+        << " [--source-mission <identifier>]"
         << " [--max-frames <count>] [--help]\n";
 }
 
@@ -120,6 +132,47 @@ int run_runtime(
                << installation::status_name(report.status)
                << " (structural validation only)\n";
         return static_cast<int>(RuntimeExitCode::installation_invalid);
+    }
+
+    std::optional<mission::SourceMissionLoadResult> source_mission;
+    if (options.source_mission.has_value()) {
+        if (context.source_mission_loader == nullptr) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.source-mission",
+                    "No source mission loader is configured",
+                    report.canonical_path,
+                    std::nullopt
+                });
+            errors
+                << "[runtime.source-mission] No source mission loader is configured\n";
+            return static_cast<int>(RuntimeExitCode::mission_invalid);
+        }
+        auto loaded = context.source_mission_loader->load(
+            report.canonical_path.value_or(report.requested_path),
+            *options.source_mission);
+        if (!loaded.has_value()) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.source-mission",
+                    loaded.error().message,
+                    loaded.error().path.empty()
+                        ? report.canonical_path
+                        : std::optional<std::filesystem::path>{
+                              loaded.error().path},
+                    std::nullopt
+                });
+            errors << "[runtime.source-mission] "
+                   << loaded.error().message;
+            if (!loaded.error().path.empty()) {
+                errors << ": " << loaded.error().path.string();
+            }
+            errors << '\n';
+            return static_cast<int>(RuntimeExitCode::mission_invalid);
+        }
+        source_mission = std::move(loaded.value());
     }
 
     std::optional<modding::LoadedPackageSet> package_set;
@@ -218,6 +271,33 @@ int run_runtime(
             return static_cast<int>(RuntimeExitCode::session_invalid);
         }
         session = std::move(created_session.value());
+    } else if (source_mission.has_value()) {
+        RuntimeWorld world(
+            mission::MissionId(source_mission->mission_id),
+            scene::MapId("source." + source_mission->mission_id),
+            std::nullopt,
+            {},
+            {});
+        auto created_session = RuntimeSession::create(
+            std::move(world),
+            initial_simulation_step,
+            initial_catch_up_limit,
+            initial_pending_command_limit);
+        if (!created_session.has_value()) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.session",
+                    created_session.error().message,
+                    std::nullopt,
+                    std::nullopt
+                });
+            errors << "[runtime.session] "
+                   << created_session.error().message
+                   << '\n';
+            return static_cast<int>(RuntimeExitCode::session_invalid);
+        }
+        session = std::move(created_session.value());
     }
 
     const auto package_count = package_set.has_value()
@@ -256,10 +336,26 @@ int run_runtime(
                << " objectives; simulation step "
                << initial.simulation_step.count()
                << " ns\n";
+        if (source_mission.has_value()) {
+            output << "[runtime.source-mission] Loaded "
+                   << source_mission->render_scene.source_mesh_count
+                   << " meshes, "
+                   << source_mission->render_scene.vertices.size()
+                   << " vertices, and "
+                   << source_mission->render_scene.indices.size()
+                   << " indices from "
+                   << source_mission->archive_path.string()
+                   << '\n';
+        }
 
         const auto run_result = context.runner->run(
             host,
-            {options.maximum_frames});
+            {
+                options.maximum_frames,
+                source_mission.has_value()
+                    ? &source_mission->render_scene
+                    : nullptr
+            });
         if (!run_result.has_value()) {
             context.diagnostics.emit(
                 {
@@ -313,6 +409,9 @@ int run_runtime(
                << observation.completed_ticks
                << ", next event sequence "
                << observation.next_event_sequence;
+    } else if (options.source_mission.has_value()) {
+        output << "; selected source mission "
+               << *options.source_mission;
     }
     output << '\n';
     context.diagnostics.emit(
@@ -338,7 +437,9 @@ int run_runtime(
         installation::default_recognition_policy(),
         installation::environment_game_path(),
         installation::configured_game_path(),
-        installation::default_windows_probe_paths()};
+        installation::default_windows_probe_paths(),
+        nullptr,
+        nullptr};
     return run_runtime(options, context, output, errors);
 }
 

@@ -3,6 +3,7 @@
 #include <contract/diagnostics/DiagnosticSink.hpp>
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/installation/Installation.hpp>
+#include <contract/mission/SourceMissionLoader.hpp>
 #include <contract/runtime/RuntimeRunner.hpp>
 
 #include <cstdint>
@@ -18,6 +19,7 @@ struct RuntimeOptions {
     std::optional<std::filesystem::path> game_path;
     std::vector<std::filesystem::path> mod_manifests;
     std::optional<std::string> mission;
+    std::optional<std::string> source_mission;
     std::optional<std::uint64_t> maximum_frames;
     bool help{false};
 };
@@ -30,6 +32,7 @@ struct RuntimeContext {
     std::optional<std::filesystem::path> configured_path;
     std::vector<std::filesystem::path> probe_paths;
     IRuntimeRunner* runner{nullptr};
+    const mission::ISourceMissionLoader* source_mission_loader{nullptr};
 };
 
 enum class RuntimeExitCode : int {

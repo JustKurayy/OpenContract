@@ -18,6 +18,7 @@ struct SyntheticEntry {
     std::vector<std::byte> contents;
     contract::formats::ZipCompressionMethod method{
         contract::formats::ZipCompressionMethod::stored};
+    bool append_adler{false};
 };
 
 void append_u16(std::vector<std::byte>& bytes, std::uint16_t value) {
@@ -39,7 +40,9 @@ void append_string(std::vector<std::byte>& bytes, const std::string& value) {
     }
 }
 
-std::vector<std::byte> deflate_raw(std::span<const std::byte> contents) {
+std::vector<std::byte> deflate_raw(
+    std::span<const std::byte> contents,
+    bool append_adler) {
     z_stream stream{};
     CONTRACT_EXPECT_EQ(deflateInit2(
         &stream,
@@ -60,6 +63,17 @@ std::vector<std::byte> deflate_raw(std::span<const std::byte> contents) {
     CONTRACT_EXPECT_EQ(deflate(&stream, Z_FINISH), Z_STREAM_END);
     CONTRACT_EXPECT_EQ(deflateEnd(&stream), Z_OK);
     compressed.resize(static_cast<std::size_t>(stream.total_out));
+    if (append_adler) {
+        const auto initial_adler = adler32(0, Z_NULL, 0);
+        const auto checksum = static_cast<std::uint32_t>(adler32(
+            initial_adler,
+            reinterpret_cast<const Bytef*>(contents.data()),
+            static_cast<uInt>(contents.size())));
+        for (int shift = 24; shift >= 0; shift -= 8) {
+            compressed.push_back(
+                static_cast<std::byte>((checksum >> shift) & 0xffU));
+        }
+    }
     return compressed;
 }
 
@@ -79,7 +93,7 @@ std::vector<std::byte> make_archive(
         const auto& entry = entries[index];
         auto compressed = entry.method ==
                                   contract::formats::ZipCompressionMethod::deflate
-            ? deflate_raw(entry.contents)
+            ? deflate_raw(entry.contents, entry.append_adler)
             : entry.contents;
         const auto crc = static_cast<std::uint32_t>(crc32(
             0,
@@ -167,6 +181,12 @@ int main() {
             {
                 "synthetic/second.bin",
                 bytes("deflated synthetic data"),
+                ZipCompressionMethod::deflate,
+                true
+            },
+            {
+                "synthetic/third.bin",
+                bytes("standard raw deflate"),
                 ZipCompressionMethod::deflate
             }
         });
@@ -179,15 +199,17 @@ int main() {
                   << " at " << archive.error().offset << '\n';
     }
     if (archive.has_value()) {
-        CONTRACT_EXPECT_EQ(archive.value().entries().size(), std::size_t{2});
+        CONTRACT_EXPECT_EQ(archive.value().entries().size(), std::size_t{3});
         CONTRACT_EXPECT_EQ(
             archive.value().entries()[0].name,
             std::string("synthetic/first.bin"));
 
         const auto* first = archive.value().find("synthetic/first.bin");
         const auto* second = archive.value().find("synthetic/second.bin");
+        const auto* third = archive.value().find("synthetic/third.bin");
         CONTRACT_EXPECT(first != nullptr);
         CONTRACT_EXPECT(second != nullptr);
+        CONTRACT_EXPECT(third != nullptr);
         CONTRACT_EXPECT(
             archive.value().find("synthetic/missing.bin") == nullptr);
         if (first != nullptr) {
@@ -217,6 +239,16 @@ int main() {
                     ZipArchiveErrorCode::size_limit_exceeded);
             }
         }
+        if (third != nullptr) {
+            const auto contents =
+                archive.value().read_entry(source, *third, budget, 1024);
+            CONTRACT_EXPECT(contents.has_value());
+            if (contents.has_value()) {
+                CONTRACT_EXPECT_EQ(
+                    contents.value(),
+                    bytes("standard raw deflate"));
+            }
+        }
     }
 
     auto trailer_bytes = archive_bytes;
@@ -231,7 +263,7 @@ int main() {
     if (trailer_archive.has_value()) {
         CONTRACT_EXPECT_EQ(
             trailer_archive.value().entries().size(),
-            std::size_t{2});
+            std::size_t{3});
     }
 
     auto truncated_bytes = archive_bytes;

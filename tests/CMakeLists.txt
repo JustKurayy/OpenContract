@@ -36,6 +36,20 @@ target_link_libraries(
         OpenContract::formats
         ${CONTRACT_ZLIB_TARGET})
 
+contract_add_test(
+    contract-primitive-container-tests
+    formats/PrimitiveContainerTests.cpp)
+target_link_libraries(
+    contract-primitive-container-tests
+    PRIVATE OpenContract::formats)
+
+contract_add_test(
+    contract-primitive-scene-decoder-tests
+    formats/PrimitiveSceneDecoderTests.cpp)
+target_link_libraries(
+    contract-primitive-scene-decoder-tests
+    PRIVATE OpenContract::formats)
+
 contract_add_test(contract-assets-tests assets/AssetTests.cpp)
 target_link_libraries(contract-assets-tests PRIVATE OpenContract::assets)
 

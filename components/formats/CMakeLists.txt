@@ -1,5 +1,7 @@
 add_library(contract-formats
     src/FormatProbe.cpp
+    src/PrimitiveContainer.cpp
+    src/PrimitiveSceneDecoder.cpp
     src/ZipArchive.cpp)
 add_library(OpenContract::formats ALIAS contract-formats)
 

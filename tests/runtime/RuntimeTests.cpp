@@ -6,6 +6,7 @@
 #include <contract/diagnostics/DiagnosticSink.hpp>
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/modding/ModManifest.hpp>
+#include <contract/mission/SourceMissionLoader.hpp>
 #include <contract/runtime/RuntimeRunner.hpp>
 
 #include <cstdint>
@@ -93,6 +94,9 @@ public:
         const contract::runtime::RuntimeRunnerOptions& options) override {
         ++calls;
         maximum_frames = options.maximum_frames;
+        render_vertex_count = options.render_scene == nullptr
+            ? 0
+            : options.render_scene->vertices.size();
         initial_observation = host.observe();
         if (fail) {
             return contract::core::Result<
@@ -124,8 +128,46 @@ public:
     std::size_t calls{0};
     bool fail{false};
     std::optional<std::uint64_t> maximum_frames;
+    std::size_t render_vertex_count{0};
     contract::runtime::RuntimeObservation initial_observation;
     contract::runtime::RuntimeObservation final_observation;
+};
+
+class SyntheticSourceMissionLoader final
+    : public contract::mission::ISourceMissionLoader {
+public:
+    contract::core::Result<
+        contract::mission::SourceMissionLoadResult,
+        contract::mission::SourceMissionLoadError>
+    load(
+        const std::filesystem::path& game_path,
+        std::string_view mission_id) const override {
+        ++calls;
+        selected_game_path = game_path;
+        selected_mission = mission_id;
+        contract::scene::RenderScene scene;
+        scene.vertices = {
+            {0.0F, 0.0F, 0.0F},
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F}};
+        scene.indices = {0, 1, 2};
+        scene.source_mesh_count = 1;
+        return contract::core::Result<
+            contract::mission::SourceMissionLoadResult,
+            contract::mission::SourceMissionLoadError>::success(
+            {
+                std::string(mission_id),
+                game_path / "synthetic.zip",
+                std::move(scene),
+                9,
+                0,
+                0
+            });
+    }
+
+    mutable std::size_t calls{0};
+    mutable std::filesystem::path selected_game_path;
+    mutable std::string selected_mission;
 };
 
 contract::modding::ModPackage package_with_mission(std::string mission_id) {
@@ -195,6 +237,23 @@ int main() {
         options->maximum_frames.value(),
         std::uint64_t{3});
 
+    std::ostringstream source_parse_errors;
+    const auto source_options = contract::runtime::parse_runtime_options(
+        {"--source-mission", "M00"},
+        source_parse_errors);
+    CONTRACT_EXPECT(source_options.has_value());
+    CONTRACT_EXPECT_EQ(
+        source_options->source_mission.value(),
+        std::string("M00"));
+    CONTRACT_EXPECT(source_parse_errors.str().empty());
+
+    std::ostringstream conflicting_errors;
+    const auto conflicting = contract::runtime::parse_runtime_options(
+        {"--mission", "custom", "--source-mission", "M00"},
+        conflicting_errors);
+    CONTRACT_EXPECT(!conflicting.has_value());
+    CONTRACT_EXPECT(!conflicting_errors.str().empty());
+
     std::ostringstream missing_value_errors;
     const auto missing_value = contract::runtime::parse_runtime_options(
         {"--mod-manifest"},
@@ -228,6 +287,7 @@ int main() {
         {{}, "levels", EntryType::directory, 0}};
     contract::diagnostics::DiagnosticBuffer diagnostics;
     RecordingRunner runner;
+    SyntheticSourceMissionLoader source_loader;
     const RuntimeContext context{
         filesystem,
         diagnostics,
@@ -235,7 +295,8 @@ int main() {
         std::nullopt,
         std::nullopt,
         {},
-        &runner};
+        &runner,
+        &source_loader};
 
     TemporaryDirectory temporary;
     const auto manifest_path = temporary.path() / "package.contract.json";
@@ -284,6 +345,28 @@ int main() {
     CONTRACT_EXPECT_EQ(
         runner.final_observation.completed_ticks,
         std::uint64_t{1});
+
+    RuntimeOptions source_runnable;
+    source_runnable.game_path =
+        std::filesystem::path("C:/synthetic-install");
+    source_runnable.source_mission = "M00";
+    source_runnable.maximum_frames = std::uint64_t{1};
+    std::ostringstream source_output;
+    std::ostringstream source_errors;
+    const auto source_exit = contract::runtime::run_runtime(
+        source_runnable,
+        context,
+        source_output,
+        source_errors);
+    CONTRACT_EXPECT_EQ(
+        source_exit,
+        static_cast<int>(RuntimeExitCode::success));
+    CONTRACT_EXPECT(source_errors.str().empty());
+    CONTRACT_EXPECT_EQ(source_loader.calls, std::size_t{1});
+    CONTRACT_EXPECT_EQ(source_loader.selected_mission, std::string("M00"));
+    CONTRACT_EXPECT_EQ(runner.render_vertex_count, std::size_t{3});
+    CONTRACT_EXPECT(
+        source_output.str().find("Loaded 1 meshes") != std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());
     CONTRACT_EXPECT_EQ(

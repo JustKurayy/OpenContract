@@ -10,6 +10,18 @@ int main() {
     rendering::BgfxRenderer renderer;
     CONTRACT_EXPECT(!renderer.initialized());
 
+    scene::RenderScene scene;
+    scene.vertices = {
+        {0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F}};
+    scene.indices = {0, 1, 2};
+    const auto upload_before_initialize = renderer.upload_scene(scene);
+    CONTRACT_EXPECT(!upload_before_initialize.has_value());
+    CONTRACT_EXPECT_EQ(
+        upload_before_initialize.error().code,
+        rendering::RendererErrorCode::not_initialized);
+
     const auto missing_window = renderer.initialize(
         nullptr,
         std::uint32_t{960},

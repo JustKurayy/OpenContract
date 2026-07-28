@@ -570,13 +570,54 @@ ZipArchiveIndex::read_entry(
         const auto inflate_result = inflate(&stream, Z_FINISH);
         const auto end_result = inflateEnd(&stream);
         if (inflate_result != Z_STREAM_END || end_result != Z_OK ||
-            stream.total_in != entry.compressed_size ||
             stream.total_out != entry.uncompressed_size) {
             return core::Result<std::vector<std::byte>, ZipArchiveError>::failure(
                 {
                     ZipArchiveErrorCode::corrupt_entry,
                     data_offset,
-                    "ZIP deflate stream is invalid or has a mismatched size"
+                    "ZIP deflate mismatch: result=" +
+                        std::to_string(inflate_result) +
+                        ", end=" + std::to_string(end_result) +
+                        ", input=" + std::to_string(stream.total_in) +
+                        "/" + std::to_string(entry.compressed_size) +
+                        ", output=" + std::to_string(stream.total_out) +
+                        "/" + std::to_string(entry.uncompressed_size)
+                });
+        }
+        const auto trailing_size =
+            entry.compressed_size - stream.total_in;
+        if (trailing_size == 4) {
+            const auto trailer_offset =
+                static_cast<std::size_t>(stream.total_in);
+            std::uint32_t expected_adler = 0;
+            for (std::size_t index = 0; index < 4; ++index) {
+                expected_adler =
+                    (expected_adler << 8U) |
+                    std::to_integer<std::uint32_t>(
+                        compressed.value()[trailer_offset + index]);
+            }
+            const auto initial_adler = adler32(0, Z_NULL, 0);
+            const auto actual_adler = static_cast<std::uint32_t>(
+                adler32(
+                    initial_adler,
+                    reinterpret_cast<const Bytef*>(output.data()),
+                    static_cast<uInt>(output.size())));
+            if (expected_adler != actual_adler) {
+                return core::Result<
+                    std::vector<std::byte>,
+                    ZipArchiveError>::failure(
+                    {
+                        ZipArchiveErrorCode::corrupt_entry,
+                        data_offset + stream.total_in,
+                        "ZIP deflate Adler-32 trailer does not match"
+                    });
+            }
+        } else if (trailing_size != 0) {
+            return core::Result<std::vector<std::byte>, ZipArchiveError>::failure(
+                {
+                    ZipArchiveErrorCode::corrupt_entry,
+                    data_offset + stream.total_in,
+                    "ZIP deflate stream has unsupported trailing data"
                 });
         }
     }
