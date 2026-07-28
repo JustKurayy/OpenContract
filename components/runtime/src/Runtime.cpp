@@ -337,6 +337,17 @@ int run_runtime(
                << initial.simulation_step.count()
                << " ns\n";
         if (source_mission.has_value()) {
+            std::size_t fallback_indices = 0;
+            std::size_t materialless_indices = 0;
+            for (const auto& batch :
+                 source_mission->render_scene.batches) {
+                if (!batch.texture_index.has_value()) {
+                    fallback_indices += batch.index_count;
+                }
+                if (batch.source_material_id == 0U) {
+                    materialless_indices += batch.index_count;
+                }
+            }
             output << "[runtime.source-mission] Loaded "
                    << source_mission->render_scene.source_mesh_count
                    << " meshes, "
@@ -347,9 +358,27 @@ int run_runtime(
                    << source_mission->active_placements
                    << " active placements ("
                    << source_mission->inactive_placements
-                   << " inactive and "
+                   << " inactive, "
+                   << source_mission->inherited_inactive_placements
+                   << " inherited inactive, "
+                   << source_mission->invisible_placements
+                   << " invisible, and "
                    << source_mission->missing_placements
-                   << " unsupported placements) from "
+                   << " unsupported placements), "
+                   << source_mission->visibility_group_count
+                   << " visibility groups, "
+                   << source_mission->collision_meshes
+                   << " collision meshes suppressed, "
+                   << source_mission->overlay_meshes
+                   << " overlay meshes suppressed, "
+                   << source_mission->texture_count
+                   << " diffuse textures, and "
+                   << source_mission->render_batch_count
+                   << " render batches ("
+                   << fallback_indices
+                   << " fallback indices, "
+                   << materialless_indices
+                   << " materialless) from "
                    << source_mission->archive_path.string()
                    << '\n';
         }

@@ -44,6 +44,7 @@ struct ScenePlacement {
     };
     std::array<float, 3> position{0.0F, 0.0F, 0.0F};
     bool inactive{false};
+    bool invisible{false};
     std::uint64_t byte_offset{0};
 };
 

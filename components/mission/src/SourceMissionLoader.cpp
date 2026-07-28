@@ -1,9 +1,12 @@
 #include <contract/mission/SourceMissionLoader.hpp>
 
 #include <contract/datasource/DataSource.hpp>
+#include <contract/formats/GmsSceneDecoder.hpp>
+#include <contract/formats/MaterialDatabaseDecoder.hpp>
 #include <contract/formats/PrimitiveContainer.hpp>
 #include <contract/formats/PrimitiveSceneDecoder.hpp>
 #include <contract/formats/ScenePlacementDecoder.hpp>
+#include <contract/formats/TextureDatabaseDecoder.hpp>
 #include <contract/formats/ZipArchive.hpp>
 #include <contract/mission/SourceSceneBuilder.hpp>
 
@@ -65,8 +68,8 @@ ReadOnlySourceMissionLoader::load(
     }
 
     datasource::ReadBudget archive_budget(
-        64U * 1024U * 1024U,
-        1024U * 1024U);
+        384U * 1024U * 1024U,
+        2U * 1024U * 1024U);
     auto archive = formats::ZipArchiveIndex::read(
         archive_source.value(),
         archive_budget);
@@ -81,6 +84,14 @@ ReadOnlySourceMissionLoader::load(
         "Scenes/" + identifier + "/" + identifier + "_main.PRM";
     const auto property_name =
         "Scenes/" + identifier + "/" + identifier + "_main.PRP";
+    const auto hierarchy_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.GMS";
+    const auto name_buffer_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.BUF";
+    const auto material_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.MAT";
+    const auto texture_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.TEX";
     const auto* primitive_entry = archive.value().find(primitive_name);
     if (primitive_entry == nullptr) {
         return failure(
@@ -94,6 +105,35 @@ ReadOnlySourceMissionLoader::load(
             SourceMissionLoadErrorCode::property_entry_missing,
             archive_path,
             "Source mission archive does not contain its property entry");
+    }
+    const auto* hierarchy_entry = archive.value().find(hierarchy_name);
+    if (hierarchy_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::hierarchy_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its hierarchy entry");
+    }
+    const auto* name_buffer_entry =
+        archive.value().find(name_buffer_name);
+    if (name_buffer_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::name_buffer_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its name buffer entry");
+    }
+    const auto* material_entry = archive.value().find(material_name);
+    if (material_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::material_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its material entry");
+    }
+    const auto* texture_entry = archive.value().find(texture_name);
+    if (texture_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::texture_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its texture entry");
     }
     auto primitive_bytes = archive.value().read_entry(
         archive_source.value(),
@@ -116,6 +156,50 @@ ReadOnlySourceMissionLoader::load(
             SourceMissionLoadErrorCode::archive_invalid,
             archive_path,
             property_bytes.error().message);
+    }
+    auto hierarchy_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *hierarchy_entry,
+        archive_budget,
+        64U * 1024U * 1024U);
+    if (!hierarchy_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            hierarchy_bytes.error().message);
+    }
+    auto name_buffer_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *name_buffer_entry,
+        archive_budget,
+        64U * 1024U * 1024U);
+    if (!name_buffer_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            name_buffer_bytes.error().message);
+    }
+    auto material_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *material_entry,
+        archive_budget,
+        64U * 1024U * 1024U);
+    if (!material_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            material_bytes.error().message);
+    }
+    auto texture_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *texture_entry,
+        archive_budget,
+        256U * 1024U * 1024U);
+    if (!texture_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            texture_bytes.error().message);
     }
 
     datasource::MemoryDataSource primitive_source(primitive_bytes.value());
@@ -153,9 +237,41 @@ ReadOnlySourceMissionLoader::load(
             archive_path,
             placements.error().message);
     }
+    auto hierarchy = formats::GmsSceneDecoder::decode(
+        hierarchy_bytes.value(),
+        name_buffer_bytes.value());
+    if (!hierarchy.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::hierarchy_decode_failed,
+            archive_path,
+            hierarchy.error().message);
+    }
+    auto materials = formats::MaterialDatabaseDecoder::decode(
+        material_bytes.value());
+    if (!materials.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::material_decode_failed,
+            archive_path,
+            materials.error().message);
+    }
+    auto textures = formats::TextureDatabaseDecoder::decode(
+        texture_bytes.value());
+    if (!textures.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::texture_decode_failed,
+            archive_path,
+            textures.error().message);
+    }
+    const SourceSceneBuildResources resources{
+        &materials.value(),
+        &textures.value(),
+        texture_bytes.value()
+    };
     auto placed_scene = SourceSceneBuilder::build(
         decoded.value().meshes,
-        placements.value().placements);
+        placements.value().placements,
+        hierarchy.value().nodes,
+        resources);
     if (!placed_scene.has_value()) {
         return failure(
             placed_scene.error().code ==
@@ -166,6 +282,10 @@ ReadOnlySourceMissionLoader::load(
             placed_scene.error().message);
     }
 
+    const auto texture_count =
+        placed_scene.value().render_scene.textures.size();
+    const auto batch_count =
+        placed_scene.value().render_scene.batches.size();
     return core::Result<
         SourceMissionLoadResult,
         SourceMissionLoadError>::success(
@@ -180,7 +300,14 @@ ReadOnlySourceMissionLoader::load(
             placements.value().placements.size(),
             placed_scene.value().active_placements,
             placed_scene.value().inactive_placements,
-            placed_scene.value().missing_placements
+            placed_scene.value().inherited_inactive_placements,
+            placed_scene.value().invisible_placements,
+            placed_scene.value().missing_placements,
+            placed_scene.value().visibility_group_count,
+            placed_scene.value().collision_meshes,
+            placed_scene.value().overlay_meshes,
+            texture_count,
+            batch_count
         });
 }
 

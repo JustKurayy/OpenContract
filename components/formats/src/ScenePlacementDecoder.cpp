@@ -673,6 +673,10 @@ ScenePlacementDecoder::decode(
         ScenePlacement placement;
         placement.primitive_record = stream[index + 19U].word;
         placement.inactive = stream[index + 18U].word != 0U;
+        if (index + 20U < stream.size() &&
+            is_opcode(stream[index + 20U], kBool)) {
+            placement.invisible = stream[index + 20U].word != 0U;
+        }
         placement.byte_offset = stream[index].offset;
         for (std::size_t matrix = 0; matrix < 9; ++matrix) {
             placement.matrix[matrix] =

@@ -1,10 +1,12 @@
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/SceneFraming.hpp>
 #include <contract/rendering/WireframeIndexBuilder.hpp>
 
 #include <bgfx/bgfx.h>
 #include <bx/math.h>
 
-#include "EmbeddedShaders.hpp"
+#include "fs_contract_texture.sc.bin.h"
+#include "vs_contract_texture.sc.bin.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +23,8 @@ struct GpuVertex {
     float x;
     float y;
     float z;
-    std::uint32_t color;
+    float u;
+    float v;
 };
 
 core::Result<void, RendererError> renderer_failure(
@@ -52,6 +55,57 @@ bgfx::VertexBufferHandle vertex_buffer_handle(std::uint16_t index) {
 
 bgfx::IndexBufferHandle index_buffer_handle(std::uint16_t index) {
     return {index};
+}
+
+bgfx::TextureHandle texture_handle(std::uint16_t index) {
+    return {index};
+}
+
+bgfx::UniformHandle uniform_handle(std::uint16_t index) {
+    return {index};
+}
+
+bgfx::TextureFormat::Enum texture_format(
+    scene::RenderTextureFormat format) {
+    switch (format) {
+    case scene::RenderTextureFormat::bc1:
+        return bgfx::TextureFormat::BC1;
+    case scene::RenderTextureFormat::bc2:
+        return bgfx::TextureFormat::BC2;
+    case scene::RenderTextureFormat::rgba8:
+        return bgfx::TextureFormat::RGBA8;
+    }
+    return bgfx::TextureFormat::RGBA8;
+}
+
+std::optional<std::size_t> expected_texture_size(
+    const scene::RenderTexture& texture) {
+    const auto width = static_cast<std::size_t>(texture.width);
+    const auto height = static_cast<std::size_t>(texture.height);
+    if (texture.format == scene::RenderTextureFormat::rgba8) {
+        if (width > std::numeric_limits<std::size_t>::max() / height ||
+            width * height >
+                std::numeric_limits<std::size_t>::max() / 4U) {
+            return std::nullopt;
+        }
+        return width * height * 4U;
+    }
+    const auto blocks_wide = (width + 3U) / 4U;
+    const auto blocks_high = (height + 3U) / 4U;
+    if (blocks_wide >
+        std::numeric_limits<std::size_t>::max() / blocks_high) {
+        return std::nullopt;
+    }
+    const auto blocks = blocks_wide * blocks_high;
+    const auto block_size =
+        texture.format == scene::RenderTextureFormat::bc1
+            ? 8U
+            : 16U;
+    if (blocks >
+        std::numeric_limits<std::size_t>::max() / block_size) {
+        return std::nullopt;
+    }
+    return blocks * block_size;
 }
 
 }
@@ -107,12 +161,12 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
 
     const auto vertex_shader = bgfx::createShader(
         bgfx::copy(
-            contract_vertex_shader,
-            sizeof(contract_vertex_shader)));
+            vs_contract_texture_dxbc,
+            sizeof(vs_contract_texture_dxbc)));
     const auto fragment_shader = bgfx::createShader(
         bgfx::copy(
-            contract_fragment_shader,
-            sizeof(contract_fragment_shader)));
+            fs_contract_texture_dxbc,
+            sizeof(fs_contract_texture_dxbc)));
     if (!bgfx::isValid(vertex_shader) ||
         !bgfx::isValid(fragment_shader)) {
         if (bgfx::isValid(vertex_shader)) {
@@ -137,6 +191,41 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
             "Could not create the scene shader program");
     }
     program_handle_ = program.idx;
+    const auto sampler = bgfx::createUniform(
+        "s_texColor",
+        bgfx::UniformType::Sampler);
+    const auto material_uniform = bgfx::createUniform(
+        "u_material",
+        bgfx::UniformType::Vec4);
+    const std::uint32_t white_pixel = 0xffff'ffffU;
+    const auto white_texture = bgfx::createTexture2D(
+        1,
+        1,
+        false,
+        1,
+        bgfx::TextureFormat::RGBA8,
+        BGFX_SAMPLER_NONE,
+        bgfx::copy(&white_pixel, sizeof(white_pixel)));
+    if (!bgfx::isValid(sampler) ||
+        !bgfx::isValid(material_uniform) ||
+        !bgfx::isValid(white_texture)) {
+        if (bgfx::isValid(sampler)) {
+            bgfx::destroy(sampler);
+        }
+        if (bgfx::isValid(white_texture)) {
+            bgfx::destroy(white_texture);
+        }
+        if (bgfx::isValid(material_uniform)) {
+            bgfx::destroy(material_uniform);
+        }
+        shutdown();
+        return renderer_failure(
+            RendererErrorCode::resource_creation_failed,
+            "Could not create scene texture resources");
+    }
+    sampler_handle_ = sampler.idx;
+    material_uniform_handle_ = material_uniform.idx;
+    white_texture_handle_ = white_texture.idx;
     return core::Result<void, RendererError>::success();
 }
 
@@ -183,6 +272,40 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
                 "Render scene contains an out-of-range index");
         }
     }
+    for (const auto& batch : scene.batches) {
+        if (batch.first_index > scene.indices.size() ||
+            batch.index_count >
+                scene.indices.size() - batch.first_index ||
+            (batch.texture_index.has_value() &&
+             batch.texture_index.value() >= scene.textures.size())) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Render scene contains an invalid draw batch");
+        }
+        if (!std::isfinite(batch.opacity) ||
+            !std::isfinite(batch.alpha_reference) ||
+            batch.opacity < 0.0F ||
+            batch.opacity > 1.0F ||
+            batch.alpha_reference < 0.0F ||
+            batch.alpha_reference > 1.0F) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Render scene contains invalid material state");
+        }
+    }
+    for (const auto& texture : scene.textures) {
+        const auto expected = expected_texture_size(texture);
+        if (texture.width == 0U ||
+            texture.height == 0U ||
+            !expected.has_value() ||
+            expected.value() != texture.data.size() ||
+            texture.data.size() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Render scene contains invalid texture data");
+        }
+    }
     float minimum_x = scene.vertices.front().x;
     float minimum_y = scene.vertices.front().y;
     float minimum_z = scene.vertices.front().z;
@@ -204,9 +327,6 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
         maximum_y = std::max(maximum_y, vertex.y);
         maximum_z = std::max(maximum_z, vertex.z);
     }
-    const auto scene_center_x = (minimum_x + maximum_x) * 0.5F;
-    const auto scene_center_y = (minimum_y + maximum_y) * 0.5F;
-    const auto scene_center_z = (minimum_z + maximum_z) * 0.5F;
     const auto extent_x = maximum_x - minimum_x;
     const auto extent_y = maximum_y - minimum_y;
     const auto extent_z = maximum_z - minimum_z;
@@ -216,32 +336,27 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
             extent_x * extent_x +
             extent_y * extent_y +
             extent_z * extent_z));
+    const auto initial_frame = choose_initial_scene_frame(scene);
+    if (!initial_frame.has_value()) {
+        return renderer_failure(
+            RendererErrorCode::invalid_scene,
+            "Render scene has no finite camera framing bounds");
+    }
     camera_.frame_scene(
-        {
-            scene_center_x,
-            scene_center_y,
-            scene_center_z
-        },
-        scene_radius_);
+        initial_frame->center,
+        initial_frame->radius);
 
     std::vector<GpuVertex> gpu_vertices;
     gpu_vertices.reserve(scene.vertices.size());
-    const auto height_range = std::max(1.0F, extent_y);
     for (const auto& vertex : scene.vertices) {
-        const auto height =
-            std::clamp((vertex.y - minimum_y) / height_range, 0.0F, 1.0F);
-        const auto red = static_cast<std::uint32_t>(45.0F + height * 35.0F);
-        const auto green =
-            static_cast<std::uint32_t>(105.0F + height * 105.0F);
-        const auto blue =
-            static_cast<std::uint32_t>(95.0F + height * 55.0F);
-        const auto color =
-            0xff000000U |
-            (blue << 16U) |
-            (green << 8U) |
-            red;
         gpu_vertices.push_back(
-            {vertex.x, vertex.y, vertex.z, color});
+            {
+                vertex.x,
+                vertex.y,
+                vertex.z,
+                vertex.u,
+                vertex.v
+            });
     }
 
     const auto vertex_bytes =
@@ -269,11 +384,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
     bgfx::VertexLayout layout;
     layout.begin()
         .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(
-            bgfx::Attrib::Color0,
-            4,
-            bgfx::AttribType::Uint8,
-            true)
+        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
         .end();
     const auto vertices = bgfx::createVertexBuffer(
         bgfx::copy(
@@ -307,6 +418,34 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
             "Could not create scene geometry buffers");
     }
 
+    std::vector<std::uint16_t> new_texture_handles;
+    new_texture_handles.reserve(scene.textures.size());
+    for (const auto& texture : scene.textures) {
+        const auto handle = bgfx::createTexture2D(
+            texture.width,
+            texture.height,
+            false,
+            1,
+            texture_format(texture.format),
+            BGFX_SAMPLER_MIN_ANISOTROPIC |
+                BGFX_SAMPLER_MAG_ANISOTROPIC,
+            bgfx::copy(
+                texture.data.data(),
+                static_cast<std::uint32_t>(texture.data.size())));
+        if (!bgfx::isValid(handle)) {
+            for (const auto created : new_texture_handles) {
+                bgfx::destroy(texture_handle(created));
+            }
+            bgfx::destroy(vertices);
+            bgfx::destroy(indices);
+            bgfx::destroy(wireframe_indices_handle);
+            return renderer_failure(
+                RendererErrorCode::resource_creation_failed,
+                "Could not create a scene texture");
+        }
+        new_texture_handles.push_back(handle.idx);
+    }
+
     if (vertex_buffer_handle_ != 0xffffU) {
         bgfx::destroy(vertex_buffer_handle(vertex_buffer_handle_));
     }
@@ -317,10 +456,31 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
         bgfx::destroy(
             index_buffer_handle(wireframe_index_buffer_handle_));
     }
+    for (const auto handle : texture_handles_) {
+        bgfx::destroy(texture_handle(handle));
+    }
     vertex_buffer_handle_ = vertices.idx;
     index_buffer_handle_ = indices.idx;
     wireframe_index_buffer_handle_ =
         wireframe_indices_handle.idx;
+    texture_handles_ = std::move(new_texture_handles);
+    batches_ = scene.batches;
+    if (batches_.empty()) {
+        batches_.push_back(
+            {
+                0,
+                static_cast<std::uint32_t>(scene.indices.size()),
+                0,
+                std::nullopt
+            });
+    }
+    textured_batch_count_ = static_cast<std::uint32_t>(
+        std::count_if(
+            batches_.begin(),
+            batches_.end(),
+            [](const scene::RenderBatch& batch) {
+                return batch.texture_index.has_value();
+            }));
     vertex_count_ = static_cast<std::uint32_t>(scene.vertices.size());
     index_count_ = static_cast<std::uint32_t>(scene.indices.size());
     wireframe_index_count_ = static_cast<std::uint32_t>(
@@ -371,15 +531,6 @@ core::Result<void, RendererError> BgfxRenderer::render(
             scene_radius_ * 5.0F,
             bgfx::getCaps()->homogeneousDepth);
         bgfx::setViewTransform(0, view, projection);
-        bgfx::setVertexBuffer(
-            0,
-            vertex_buffer_handle(vertex_buffer_handle_));
-        const auto selected_index_buffer =
-            wireframe
-                ? wireframe_index_buffer_handle_
-                : index_buffer_handle_;
-        bgfx::setIndexBuffer(
-            index_buffer_handle(selected_index_buffer));
         auto render_state =
             BGFX_STATE_WRITE_RGB |
             BGFX_STATE_WRITE_A |
@@ -388,9 +539,66 @@ core::Result<void, RendererError> BgfxRenderer::render(
             BGFX_STATE_MSAA;
         if (wireframe) {
             render_state |= BGFX_STATE_PT_LINES;
+            bgfx::setVertexBuffer(
+                0,
+                vertex_buffer_handle(vertex_buffer_handle_));
+            bgfx::setIndexBuffer(
+                index_buffer_handle(
+                    wireframe_index_buffer_handle_));
+            bgfx::setTexture(
+                0,
+                uniform_handle(sampler_handle_),
+                texture_handle(white_texture_handle_));
+            const float material[4]{1.0F, 0.0F, 0.0F, 0.0F};
+            bgfx::setUniform(
+                uniform_handle(material_uniform_handle_),
+                material);
+            bgfx::setState(render_state);
+            bgfx::submit(0, program_handle(program_handle_));
+        } else {
+            for (const auto& batch : batches_) {
+                auto batch_state = render_state;
+                if (batch.blend_mode ==
+                    scene::RenderBlendMode::alpha) {
+                    batch_state |= BGFX_STATE_BLEND_ALPHA;
+                } else if (
+                    batch.blend_mode ==
+                    scene::RenderBlendMode::additive) {
+                    batch_state |= BGFX_STATE_BLEND_ADD;
+                }
+                if (batch.cull_mode ==
+                    scene::RenderCullMode::one_sided) {
+                    batch_state |= BGFX_STATE_CULL_CW;
+                }
+                bgfx::setVertexBuffer(
+                    0,
+                    vertex_buffer_handle(vertex_buffer_handle_));
+                bgfx::setIndexBuffer(
+                    index_buffer_handle(index_buffer_handle_),
+                    batch.first_index,
+                    batch.index_count);
+                const auto texture =
+                    batch.texture_index.has_value()
+                        ? texture_handles_[
+                              batch.texture_index.value()]
+                        : white_texture_handle_;
+                bgfx::setTexture(
+                    0,
+                    uniform_handle(sampler_handle_),
+                    texture_handle(texture));
+                const float material[4]{
+                    batch.opacity,
+                    batch.alpha_reference,
+                    0.0F,
+                    0.0F
+                };
+                bgfx::setUniform(
+                    uniform_handle(material_uniform_handle_),
+                    material);
+                bgfx::setState(batch_state);
+                bgfx::submit(0, program_handle(program_handle_));
+            }
         }
-        bgfx::setState(render_state);
-        bgfx::submit(0, program_handle(program_handle_));
     }
     bgfx::touch(0);
     bgfx::dbgTextClear();
@@ -442,6 +650,13 @@ core::Result<void, RendererError> BgfxRenderer::render(
         wireframe ? wireframe_index_count_ : index_count_);
     bgfx::dbgTextPrintf(
         3,
+        11,
+        0x0f,
+        "Materials: %u textured batches, %u textures",
+        textured_batch_count_,
+        static_cast<unsigned int>(texture_handles_.size()));
+    bgfx::dbgTextPrintf(
+        3,
         12,
         0x0b,
         "Camera: %.1f %.1f %.1f",
@@ -480,6 +695,18 @@ void BgfxRenderer::shutdown() noexcept {
     if (program_handle_ != 0xffffU) {
         bgfx::destroy(program_handle(program_handle_));
     }
+    if (sampler_handle_ != 0xffffU) {
+        bgfx::destroy(uniform_handle(sampler_handle_));
+    }
+    if (material_uniform_handle_ != 0xffffU) {
+        bgfx::destroy(uniform_handle(material_uniform_handle_));
+    }
+    if (white_texture_handle_ != 0xffffU) {
+        bgfx::destroy(texture_handle(white_texture_handle_));
+    }
+    for (const auto handle : texture_handles_) {
+        bgfx::destroy(texture_handle(handle));
+    }
     bgfx::shutdown();
     initialized_ = false;
     width_ = 0;
@@ -489,9 +716,15 @@ void BgfxRenderer::shutdown() noexcept {
     vertex_buffer_handle_ = 0xffffU;
     index_buffer_handle_ = 0xffffU;
     wireframe_index_buffer_handle_ = 0xffffU;
+    sampler_handle_ = 0xffffU;
+    material_uniform_handle_ = 0xffffU;
+    white_texture_handle_ = 0xffffU;
+    texture_handles_.clear();
+    batches_.clear();
     vertex_count_ = 0;
     index_count_ = 0;
     wireframe_index_count_ = 0;
+    textured_batch_count_ = 0;
     scene_radius_ = 1.0F;
     camera_ = FreeCamera{};
 }

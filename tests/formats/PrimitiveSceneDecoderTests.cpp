@@ -37,11 +37,13 @@ void write_f32(
     write_u32(bytes, offset, std::bit_cast<std::uint32_t>(value));
 }
 
-std::vector<std::byte> make_scene_container(bool invalid_index) {
+std::vector<std::byte> make_scene_container(
+    bool invalid_index,
+    bool primary_lod = true) {
     const std::vector<std::size_t> sizes{
         16,
         16,
-        48,
+        120,
         16,
         16,
         64,
@@ -79,15 +81,26 @@ std::vector<std::byte> make_scene_container(bool invalid_index) {
         for (std::size_t axis = 0; axis < 3; ++axis) {
             write_f32(
                 bytes,
-                offsets[2] + vertex * 16U + axis * 4U,
+                offsets[2] + vertex * 40U + axis * 4U,
                 positions[vertex * 3U + axis]);
         }
+        write_f32(
+            bytes,
+            offsets[2] + vertex * 40U + 20U,
+            static_cast<float>(vertex) * 0.25F);
+        write_f32(
+            bytes,
+            offsets[2] + vertex * 40U + 24U,
+            static_cast<float>(vertex) * 0.5F);
     }
 
     write_u32(bytes, offsets[3], 3);
     write_u32(bytes, offsets[3] + 4U, 2);
     write_u32(bytes, offsets[3] + 12U, 1);
     write_u32(bytes, offsets[4], 3);
+    bytes[offsets[5] + 14U] =
+        primary_lod ? std::byte{1} : std::byte{0};
+    write_u16(bytes, offsets[5] + 18U, 77);
     write_u32(bytes, offsets[5] + 40U, 4);
     write_u32(bytes, offsets[6], 5);
 
@@ -140,7 +153,10 @@ int main() {
                 std::size_t{1});
             CONTRACT_EXPECT_EQ(
                 scene.value().meshes[0].vertex_stride,
-                std::uint32_t{16});
+                std::uint32_t{40});
+            CONTRACT_EXPECT_EQ(
+                scene.value().meshes[0].material_id,
+                std::uint16_t{77});
             CONTRACT_EXPECT_EQ(
                 scene.value().meshes[0].positions.size(),
                 std::size_t{3});
@@ -149,6 +165,12 @@ int main() {
                 std::size_t{3});
             CONTRACT_EXPECT_EQ(
                 scene.value().meshes[0].positions[1].x,
+                1.0F);
+            CONTRACT_EXPECT_EQ(
+                scene.value().meshes[0].texture_coordinates[2].u,
+                0.5F);
+            CONTRACT_EXPECT_EQ(
+                scene.value().meshes[0].texture_coordinates[2].v,
                 1.0F);
             CONTRACT_EXPECT_EQ(
                 scene.value().meshes[0].indices[2],
@@ -177,6 +199,30 @@ int main() {
                 invalid.error().code,
                 contract::formats::PrimitiveSceneDecodeErrorCode::no_meshes);
         }
+    }
+
+    const auto secondary_lod_bytes =
+        make_scene_container(false, false);
+    contract::datasource::MemoryDataSource secondary_lod_source(
+        secondary_lod_bytes);
+    contract::datasource::ReadBudget secondary_lod_index_budget(
+        4096,
+        256);
+    const auto secondary_lod_container =
+        contract::formats::PrimitiveContainerIndex::read(
+            secondary_lod_source,
+            secondary_lod_index_budget);
+    CONTRACT_EXPECT(secondary_lod_container.has_value());
+    if (secondary_lod_container.has_value()) {
+        contract::datasource::ReadBudget secondary_lod_decode_budget(
+            4096,
+            256);
+        const auto secondary_lod =
+            contract::formats::PrimitiveSceneDecoder::decode(
+                secondary_lod_container.value(),
+                secondary_lod_source,
+                secondary_lod_decode_budget);
+        CONTRACT_EXPECT(!secondary_lod.has_value());
     }
 
     return contract::test::finish();

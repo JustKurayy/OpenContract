@@ -98,6 +98,14 @@ decode_object(
             PrimitiveSceneDecodeError>::success(
             std::nullopt);
     }
+    const auto level_of_detail =
+        std::to_integer<std::uint8_t>(object.value()[14U]);
+    if ((level_of_detail & 1U) == 0U) {
+        return core::Result<
+            std::optional<PrimitiveMesh>,
+            PrimitiveSceneDecodeError>::success(
+            std::nullopt);
+    }
 
     const auto indirection_index = read_u32(object.value(), 40);
     if (indirection_index >= container.records().size()) {
@@ -214,7 +222,19 @@ decode_object(
     mesh.model_record = model_record;
     mesh.object_record = object_record;
     mesh.vertex_stride = static_cast<std::uint32_t>(stride);
+    mesh.material_id = read_u16(object.value(), 18U);
     mesh.positions.reserve(vertex_count);
+    std::optional<std::size_t> texture_coordinate_offset;
+    if (stride == 36U) {
+        texture_coordinate_offset = 28U;
+    } else if (stride == 40U) {
+        texture_coordinate_offset = 20U;
+    } else if (stride == 52U) {
+        texture_coordinate_offset = 36U;
+    }
+    if (texture_coordinate_offset.has_value()) {
+        mesh.texture_coordinates.reserve(vertex_count);
+    }
     for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
         const auto vertex_offset = vertex * stride;
         const PrimitivePosition position{
@@ -231,6 +251,26 @@ decode_object(
                 std::nullopt);
         }
         mesh.positions.push_back(position);
+        if (texture_coordinate_offset.has_value()) {
+            const PrimitiveTextureCoordinate coordinate{
+                read_f32(
+                    vertices.value(),
+                    vertex_offset +
+                        texture_coordinate_offset.value()),
+                read_f32(
+                    vertices.value(),
+                    vertex_offset +
+                        texture_coordinate_offset.value() + 4U)
+            };
+            if (!std::isfinite(coordinate.u) ||
+                !std::isfinite(coordinate.v)) {
+                return core::Result<
+                    std::optional<PrimitiveMesh>,
+                    PrimitiveSceneDecodeError>::success(
+                    std::nullopt);
+            }
+            mesh.texture_coordinates.push_back(coordinate);
+        }
     }
 
     mesh.indices.reserve(index_count);

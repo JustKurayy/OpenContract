@@ -16,8 +16,15 @@ enum class SourceMissionLoadErrorCode {
     archive_invalid,
     primitive_entry_missing,
     property_entry_missing,
+    hierarchy_entry_missing,
+    name_buffer_entry_missing,
+    material_entry_missing,
+    texture_entry_missing,
     primitive_container_invalid,
     property_decode_failed,
+    hierarchy_decode_failed,
+    material_decode_failed,
+    texture_decode_failed,
     scene_decode_failed,
     scene_limit_exceeded
 };
@@ -40,7 +47,14 @@ struct SourceMissionLoadResult {
     std::size_t decoded_placements{0};
     std::size_t active_placements{0};
     std::size_t inactive_placements{0};
+    std::size_t inherited_inactive_placements{0};
+    std::size_t invisible_placements{0};
     std::size_t missing_placements{0};
+    std::size_t visibility_group_count{0};
+    std::size_t collision_meshes{0};
+    std::size_t overlay_meshes{0};
+    std::size_t texture_count{0};
+    std::size_t render_batch_count{0};
 };
 
 class ISourceMissionLoader {

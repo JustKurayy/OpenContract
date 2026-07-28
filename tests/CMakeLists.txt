@@ -57,6 +57,29 @@ target_link_libraries(
     contract-scene-placement-decoder-tests
     PRIVATE OpenContract::formats)
 
+contract_add_test(
+    contract-gms-scene-decoder-tests
+    formats/GmsSceneDecoderTests.cpp)
+target_link_libraries(
+    contract-gms-scene-decoder-tests
+    PRIVATE
+        OpenContract::formats
+        ${CONTRACT_ZLIB_TARGET})
+
+contract_add_test(
+    contract-material-database-decoder-tests
+    formats/MaterialDatabaseDecoderTests.cpp)
+target_link_libraries(
+    contract-material-database-decoder-tests
+    PRIVATE OpenContract::formats)
+
+contract_add_test(
+    contract-texture-database-decoder-tests
+    formats/TextureDatabaseDecoderTests.cpp)
+target_link_libraries(
+    contract-texture-database-decoder-tests
+    PRIVATE OpenContract::formats)
+
 contract_add_test(contract-assets-tests assets/AssetTests.cpp)
 target_link_libraries(contract-assets-tests PRIVATE OpenContract::assets)
 

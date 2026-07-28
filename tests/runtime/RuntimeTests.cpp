@@ -374,7 +374,8 @@ int main() {
         source_output.str().find("Loaded 1 meshes") != std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
-            "0 inactive and 0 unsupported placements") !=
+            "0 inactive, 0 inherited inactive, 0 invisible, and "
+            "0 unsupported placements") !=
         std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());

@@ -1,6 +1,7 @@
 #include "TestSupport.hpp"
 
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/SceneFraming.hpp>
 #include <contract/rendering/WireframeIndexBuilder.hpp>
 
 #include <array>
@@ -73,6 +74,63 @@ int main() {
         oversized.error().code,
         rendering::RendererErrorCode::invalid_dimensions);
     CONTRACT_EXPECT(!renderer.initialized());
+
+    scene::RenderScene framed_scene;
+    framed_scene.vertices = {
+        {-100.0F, -100.0F, -100.0F},
+        {100.0F, 100.0F, 100.0F},
+        {-1.0F, -1.0F, -1.0F},
+        {1.0F, 1.0F, 1.0F}
+    };
+    framed_scene.indices = {0, 1, 0, 2, 3, 2};
+    framed_scene.batches = {
+        {0, 3, 1, std::nullopt},
+        {3, 3, 2, std::size_t{0}}
+    };
+    framed_scene.textures.push_back(
+        {1, 1, 1, scene::RenderTextureFormat::rgba8, {}});
+    const auto frame =
+        rendering::choose_initial_scene_frame(framed_scene);
+    CONTRACT_EXPECT(frame.has_value());
+    if (frame.has_value()) {
+        CONTRACT_EXPECT_EQ(frame->center.x, 0.0F);
+        CONTRACT_EXPECT_EQ(frame->center.y, 0.0F);
+        CONTRACT_EXPECT_EQ(frame->center.z, 0.0F);
+        CONTRACT_EXPECT(frame->radius < 2.0F);
+    }
+
+    scene::RenderScene robust_scene;
+    for (int value = -10; value < 10; ++value) {
+        const auto coordinate = static_cast<float>(value);
+        robust_scene.vertices.push_back(
+            {coordinate, coordinate, coordinate});
+        robust_scene.indices.push_back(
+            static_cast<std::uint32_t>(
+                robust_scene.indices.size()));
+    }
+    robust_scene.vertices.push_back(
+        {-1000.0F, -1000.0F, -1000.0F});
+    robust_scene.vertices.push_back(
+        {1000.0F, 1000.0F, 1000.0F});
+    robust_scene.indices.push_back(20);
+    robust_scene.indices.push_back(21);
+    robust_scene.batches = {
+        {
+            0,
+            static_cast<std::uint32_t>(
+                robust_scene.indices.size()),
+            1,
+            std::size_t{0}
+        }
+    };
+    robust_scene.textures.push_back(
+        {1, 1, 1, scene::RenderTextureFormat::rgba8, {}});
+    const auto robust_frame =
+        rendering::choose_initial_scene_frame(robust_scene);
+    CONTRACT_EXPECT(robust_frame.has_value());
+    if (robust_frame.has_value()) {
+        CONTRACT_EXPECT(robust_frame->radius < 20.0F);
+    }
 
     return test::finish();
 }

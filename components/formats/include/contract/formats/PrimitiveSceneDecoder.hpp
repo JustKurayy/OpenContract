@@ -38,11 +38,18 @@ struct PrimitivePosition {
     float z{0.0F};
 };
 
+struct PrimitiveTextureCoordinate {
+    float u{0.0F};
+    float v{0.0F};
+};
+
 struct PrimitiveMesh {
     std::uint32_t model_record{0};
     std::uint32_t object_record{0};
     std::uint32_t vertex_stride{0};
+    std::uint16_t material_id{0};
     std::vector<PrimitivePosition> positions;
+    std::vector<PrimitiveTextureCoordinate> texture_coordinates;
     std::vector<std::uint32_t> indices;
 };
 

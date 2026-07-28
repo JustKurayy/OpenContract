@@ -46,7 +46,8 @@ void write_u32(
 }
 
 std::vector<std::byte> make_properties(
-    std::uint32_t primitive_record) {
+    std::uint32_t primitive_record,
+    bool invisible = false) {
     std::vector<std::byte> bytes(31, std::byte{0});
     constexpr std::string_view magic{"IOPacked v0.1"};
     for (std::size_t index = 0; index < magic.size(); ++index) {
@@ -95,6 +96,10 @@ std::vector<std::byte> make_properties(
     append_u8(bytes, 0);
     append_u8(bytes, 0x09);
     append_u32(bytes, primitive_record);
+    if (invisible) {
+        append_u8(bytes, 0x06);
+        append_u8(bytes, 1);
+    }
     append_u8(bytes, 0x7e);
     append_u8(bytes, 0x7f);
     return bytes;
@@ -120,6 +125,20 @@ int main() {
         CONTRACT_EXPECT_EQ(placement.position[1], 20.0F);
         CONTRACT_EXPECT_EQ(placement.position[2], 30.0F);
         CONTRACT_EXPECT(!placement.inactive);
+        CONTRACT_EXPECT(!placement.invisible);
+    }
+
+    const auto invisible_bytes = make_properties(7, true);
+    const auto invisible =
+        contract::formats::ScenePlacementDecoder::decode(
+            invisible_bytes);
+    CONTRACT_EXPECT(invisible.has_value());
+    if (invisible.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            invisible.value().placements.size(),
+            std::size_t{1});
+        CONTRACT_EXPECT(
+            invisible.value().placements.front().invisible);
     }
 
     auto truncated_bytes = bytes;

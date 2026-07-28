@@ -1,8 +1,11 @@
 add_library(contract-formats
     src/FormatProbe.cpp
+    src/GmsSceneDecoder.cpp
+    src/MaterialDatabaseDecoder.cpp
     src/PrimitiveContainer.cpp
     src/PrimitiveSceneDecoder.cpp
     src/ScenePlacementDecoder.cpp
+    src/TextureDatabaseDecoder.cpp
     src/ZipArchive.cpp)
 add_library(OpenContract::formats ALIAS contract-formats)
 
