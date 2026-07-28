@@ -3,11 +3,11 @@
 #include <contract/datasource/DataSource.hpp>
 #include <contract/formats/PrimitiveContainer.hpp>
 #include <contract/formats/PrimitiveSceneDecoder.hpp>
+#include <contract/formats/ScenePlacementDecoder.hpp>
 #include <contract/formats/ZipArchive.hpp>
+#include <contract/mission/SourceSceneBuilder.hpp>
 
 #include <cctype>
-#include <cstdint>
-#include <limits>
 #include <utility>
 
 namespace contract::mission {
@@ -79,12 +79,21 @@ ReadOnlySourceMissionLoader::load(
 
     const auto primitive_name =
         "Scenes/" + identifier + "/" + identifier + "_main.PRM";
+    const auto property_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.PRP";
     const auto* primitive_entry = archive.value().find(primitive_name);
     if (primitive_entry == nullptr) {
         return failure(
             SourceMissionLoadErrorCode::primitive_entry_missing,
             archive_path,
             "Source mission archive does not contain its primitive entry");
+    }
+    const auto* property_entry = archive.value().find(property_name);
+    if (property_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::property_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its property entry");
     }
     auto primitive_bytes = archive.value().read_entry(
         archive_source.value(),
@@ -96,6 +105,17 @@ ReadOnlySourceMissionLoader::load(
             SourceMissionLoadErrorCode::archive_invalid,
             archive_path,
             primitive_bytes.error().message);
+    }
+    auto property_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *property_entry,
+        archive_budget,
+        256U * 1024U * 1024U);
+    if (!property_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            property_bytes.error().message);
     }
 
     datasource::MemoryDataSource primitive_source(primitive_bytes.value());
@@ -125,39 +145,25 @@ ReadOnlySourceMissionLoader::load(
             decoded.error().message);
     }
 
-    scene::RenderScene render_scene;
-    render_scene.source_mesh_count = decoded.value().meshes.size();
-    std::size_t vertex_count = 0;
-    std::size_t index_count = 0;
-    for (const auto& mesh : decoded.value().meshes) {
-        vertex_count += mesh.positions.size();
-        index_count += mesh.indices.size();
-    }
-    if (vertex_count > std::numeric_limits<std::uint32_t>::max()) {
+    auto placements = formats::ScenePlacementDecoder::decode(
+        property_bytes.value());
+    if (!placements.has_value()) {
         return failure(
-            SourceMissionLoadErrorCode::scene_limit_exceeded,
+            SourceMissionLoadErrorCode::property_decode_failed,
             archive_path,
-            "Source mission has too many vertices for the renderer");
+            placements.error().message);
     }
-    render_scene.vertices.reserve(vertex_count);
-    render_scene.indices.reserve(index_count);
-    for (const auto& mesh : decoded.value().meshes) {
-        const auto base_vertex =
-            static_cast<std::uint32_t>(render_scene.vertices.size());
-        for (const auto& position : mesh.positions) {
-            render_scene.vertices.push_back(
-                {position.x, position.y, position.z});
-        }
-        for (const auto index : mesh.indices) {
-            if (index >
-                std::numeric_limits<std::uint32_t>::max() - base_vertex) {
-                return failure(
-                    SourceMissionLoadErrorCode::scene_limit_exceeded,
-                    archive_path,
-                    "Source mission index would overflow");
-            }
-            render_scene.indices.push_back(base_vertex + index);
-        }
+    auto placed_scene = SourceSceneBuilder::build(
+        decoded.value().meshes,
+        placements.value().placements);
+    if (!placed_scene.has_value()) {
+        return failure(
+            placed_scene.error().code ==
+                    SourceSceneBuildErrorCode::scene_limit_exceeded
+                ? SourceMissionLoadErrorCode::scene_limit_exceeded
+                : SourceMissionLoadErrorCode::scene_decode_failed,
+            archive_path,
+            placed_scene.error().message);
     }
 
     return core::Result<
@@ -166,10 +172,15 @@ ReadOnlySourceMissionLoader::load(
         {
             identifier,
             archive_path,
-            std::move(render_scene),
+            std::move(placed_scene.value().render_scene),
             container.value().records().size(),
             decoded.value().rejected_models,
-            decoded.value().rejected_objects
+            decoded.value().rejected_objects,
+            placements.value().declared_objects,
+            placements.value().placements.size(),
+            placed_scene.value().active_placements,
+            placed_scene.value().inactive_placements,
+            placed_scene.value().missing_placements
         });
 }
 

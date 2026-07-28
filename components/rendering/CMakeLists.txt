@@ -34,7 +34,9 @@ configure_file(
     @ONLY)
 
 add_library(contract-rendering-bgfx
-    src/BgfxRenderer.cpp)
+    src/BgfxRenderer.cpp
+    src/FreeCamera.cpp
+    src/WireframeIndexBuilder.cpp)
 add_library(
     OpenContract::rendering-bgfx
     ALIAS contract-rendering-bgfx)

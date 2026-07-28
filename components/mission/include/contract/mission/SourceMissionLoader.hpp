@@ -15,7 +15,9 @@ enum class SourceMissionLoadErrorCode {
     archive_unavailable,
     archive_invalid,
     primitive_entry_missing,
+    property_entry_missing,
     primitive_container_invalid,
+    property_decode_failed,
     scene_decode_failed,
     scene_limit_exceeded
 };
@@ -34,6 +36,11 @@ struct SourceMissionLoadResult {
     std::size_t primitive_records{0};
     std::size_t rejected_models{0};
     std::size_t rejected_objects{0};
+    std::size_t declared_scene_objects{0};
+    std::size_t decoded_placements{0};
+    std::size_t active_placements{0};
+    std::size_t inactive_placements{0};
+    std::size_t missing_placements{0};
 };
 
 class ISourceMissionLoader {

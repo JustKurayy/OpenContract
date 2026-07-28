@@ -343,7 +343,13 @@ int run_runtime(
                    << source_mission->render_scene.vertices.size()
                    << " vertices, and "
                    << source_mission->render_scene.indices.size()
-                   << " indices from "
+                   << " indices across "
+                   << source_mission->active_placements
+                   << " active placements ("
+                   << source_mission->inactive_placements
+                   << " inactive and "
+                   << source_mission->missing_placements
+                   << " unsupported placements) from "
                    << source_mission->archive_path.string()
                    << '\n';
         }

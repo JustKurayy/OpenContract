@@ -161,6 +161,11 @@ public:
                 std::move(scene),
                 9,
                 0,
+                0,
+                1,
+                1,
+                1,
+                0,
                 0
             });
     }
@@ -367,6 +372,10 @@ int main() {
     CONTRACT_EXPECT_EQ(runner.render_vertex_count, std::size_t{3});
     CONTRACT_EXPECT(
         source_output.str().find("Loaded 1 meshes") != std::string::npos);
+    CONTRACT_EXPECT(
+        source_output.str().find(
+            "0 inactive and 0 unsupported placements") !=
+        std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());
     CONTRACT_EXPECT_EQ(

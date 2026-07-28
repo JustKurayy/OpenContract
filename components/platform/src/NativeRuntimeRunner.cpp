@@ -3,6 +3,7 @@
 #include <contract/rendering/BgfxRenderer.hpp>
 
 #include <chrono>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -47,6 +48,8 @@ struct WindowState {
     std::uint32_t height{540};
     bool closed{false};
     bool resized{false};
+    bool wireframe{false};
+    std::array<bool, 256> keys{};
 };
 
 void validate_paint(HWND window) {
@@ -81,11 +84,30 @@ LRESULT CALLBACK runtime_window_proc(
         }
         return 0;
     case WM_KEYDOWN:
+        if (state != nullptr && word < state->keys.size()) {
+            state->keys[word] = true;
+        }
+        if (state != nullptr &&
+            word == VK_F1 &&
+            (static_cast<std::uint64_t>(data) &
+             (std::uint64_t{1} << 30U)) == 0) {
+            state->wireframe = !state->wireframe;
+        }
         if (word == VK_ESCAPE) {
             static_cast<void>(DestroyWindow(window));
             return 0;
         }
         break;
+    case WM_KEYUP:
+        if (state != nullptr && word < state->keys.size()) {
+            state->keys[word] = false;
+        }
+        return 0;
+    case WM_KILLFOCUS:
+        if (state != nullptr) {
+            state->keys.fill(false);
+        }
+        return 0;
     case WM_SIZE:
         if (state != nullptr && word != SIZE_MINIMIZED) {
             state->width = static_cast<std::uint32_t>(
@@ -105,6 +127,35 @@ LRESULT CALLBACK runtime_window_proc(
         break;
     }
     return DefWindowProcW(window, message, word, data);
+}
+
+bool key_down(
+    const WindowState& state,
+    std::size_t key) {
+    return key < state.keys.size() && state.keys[key];
+}
+
+rendering::FreeCameraInput camera_input(
+    const WindowState& state) {
+    rendering::FreeCameraInput input;
+    input.forward =
+        (key_down(state, 'W') ? 1.0F : 0.0F) -
+        (key_down(state, 'S') ? 1.0F : 0.0F);
+    input.right =
+        (key_down(state, 'D') ? 1.0F : 0.0F) -
+        (key_down(state, 'A') ? 1.0F : 0.0F);
+    input.up =
+        (key_down(state, 'E') ? 1.0F : 0.0F) -
+        (key_down(state, 'Q') ? 1.0F : 0.0F);
+    input.yaw =
+        (key_down(state, VK_RIGHT) ? 1.0F : 0.0F) -
+        (key_down(state, VK_LEFT) ? 1.0F : 0.0F);
+    input.pitch =
+        (key_down(state, VK_UP) ? 1.0F : 0.0F) -
+        (key_down(state, VK_DOWN) ? 1.0F : 0.0F);
+    input.fast =
+        key_down(state, VK_SHIFT);
+    return input;
 }
 
 core::Result<HWND, runtime::RuntimeRunnerError> create_runtime_window(
@@ -272,7 +323,11 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
                 });
         }
         state.observation = std::move(frame.value().observation);
-        auto rendered = renderer.render(state.observation);
+        auto rendered = renderer.render(
+            state.observation,
+            camera_input(state),
+            std::chrono::duration<float>(elapsed).count(),
+            state.wireframe);
         if (!rendered.has_value()) {
             renderer.shutdown();
             static_cast<void>(DestroyWindow(window));

@@ -1,5 +1,6 @@
 add_library(contract-mission
     src/Mission.cpp
+    src/SourceSceneBuilder.cpp
     src/SourceMissionLoader.cpp)
 add_library(OpenContract::mission ALIAS contract-mission)
 

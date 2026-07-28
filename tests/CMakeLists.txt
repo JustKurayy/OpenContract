@@ -50,6 +50,13 @@ target_link_libraries(
     contract-primitive-scene-decoder-tests
     PRIVATE OpenContract::formats)
 
+contract_add_test(
+    contract-scene-placement-decoder-tests
+    formats/ScenePlacementDecoderTests.cpp)
+target_link_libraries(
+    contract-scene-placement-decoder-tests
+    PRIVATE OpenContract::formats)
+
 contract_add_test(contract-assets-tests assets/AssetTests.cpp)
 target_link_libraries(contract-assets-tests PRIVATE OpenContract::assets)
 
@@ -67,6 +74,13 @@ target_link_libraries(contract-pathfinding-tests PRIVATE OpenContract::navigatio
 
 contract_add_test(contract-mission-tests mission/MissionTests.cpp)
 target_link_libraries(contract-mission-tests PRIVATE OpenContract::mission)
+
+contract_add_test(
+    contract-source-scene-builder-tests
+    mission/SourceSceneBuilderTests.cpp)
+target_link_libraries(
+    contract-source-scene-builder-tests
+    PRIVATE OpenContract::mission)
 
 contract_add_test(contract-modding-tests modding/ModModelTests.cpp)
 target_link_libraries(contract-modding-tests PRIVATE OpenContract::modding)
@@ -115,6 +129,13 @@ contract_add_test(
     rendering/BgfxRendererTests.cpp)
 target_link_libraries(
     contract-bgfx-renderer-tests
+    PRIVATE OpenContract::rendering-bgfx)
+
+contract_add_test(
+    contract-free-camera-tests
+    rendering/FreeCameraTests.cpp)
+target_link_libraries(
+    contract-free-camera-tests
     PRIVATE OpenContract::rendering-bgfx)
 
 if(WIN32)

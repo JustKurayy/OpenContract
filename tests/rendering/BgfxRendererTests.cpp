@@ -1,7 +1,9 @@
 #include "TestSupport.hpp"
 
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/WireframeIndexBuilder.hpp>
 
+#include <array>
 #include <cstdint>
 
 int main() {
@@ -9,6 +11,26 @@ int main() {
 
     rendering::BgfxRenderer renderer;
     CONTRACT_EXPECT(!renderer.initialized());
+
+    const std::array<std::uint32_t, 6> triangles{
+        0, 1, 2,
+        2, 3, 0};
+    const auto wireframe =
+        rendering::build_wireframe_indices(triangles);
+    CONTRACT_EXPECT(wireframe.has_value());
+    CONTRACT_EXPECT_EQ(
+        wireframe.value(),
+        (std::vector<std::uint32_t>{
+            0, 1, 1, 2, 2, 0,
+            2, 3, 3, 0, 0, 2}));
+
+    const std::array<std::uint32_t, 2> incomplete{0, 1};
+    const auto rejected =
+        rendering::build_wireframe_indices(incomplete);
+    CONTRACT_EXPECT(!rejected.has_value());
+    CONTRACT_EXPECT_EQ(
+        rejected.error().code,
+        rendering::WireframeIndexErrorCode::incomplete_triangle);
 
     scene::RenderScene scene;
     scene.vertices = {

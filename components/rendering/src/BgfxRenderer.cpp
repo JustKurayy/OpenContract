@@ -1,4 +1,5 @@
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/WireframeIndexBuilder.hpp>
 
 #include <bgfx/bgfx.h>
 #include <bx/math.h>
@@ -203,9 +204,9 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
         maximum_y = std::max(maximum_y, vertex.y);
         maximum_z = std::max(maximum_z, vertex.z);
     }
-    scene_center_x_ = (minimum_x + maximum_x) * 0.5F;
-    scene_center_y_ = (minimum_y + maximum_y) * 0.5F;
-    scene_center_z_ = (minimum_z + maximum_z) * 0.5F;
+    const auto scene_center_x = (minimum_x + maximum_x) * 0.5F;
+    const auto scene_center_y = (minimum_y + maximum_y) * 0.5F;
+    const auto scene_center_z = (minimum_z + maximum_z) * 0.5F;
     const auto extent_x = maximum_x - minimum_x;
     const auto extent_y = maximum_y - minimum_y;
     const auto extent_z = maximum_z - minimum_z;
@@ -215,6 +216,13 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
             extent_x * extent_x +
             extent_y * extent_y +
             extent_z * extent_z));
+    camera_.frame_scene(
+        {
+            scene_center_x,
+            scene_center_y,
+            scene_center_z
+        },
+        scene_radius_);
 
     std::vector<GpuVertex> gpu_vertices;
     gpu_vertices.reserve(scene.vertices.size());
@@ -240,8 +248,19 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
         gpu_vertices.size() * sizeof(GpuVertex);
     const auto index_bytes =
         scene.indices.size() * sizeof(std::uint32_t);
+    auto wireframe_indices =
+        build_wireframe_indices(scene.indices);
+    if (!wireframe_indices.has_value()) {
+        return renderer_failure(
+            RendererErrorCode::invalid_scene,
+            "Render scene contains an incomplete triangle");
+    }
+    const auto wireframe_index_bytes =
+        wireframe_indices.value().size() * sizeof(std::uint32_t);
     if (vertex_bytes > std::numeric_limits<std::uint32_t>::max() ||
-        index_bytes > std::numeric_limits<std::uint32_t>::max()) {
+        index_bytes > std::numeric_limits<std::uint32_t>::max() ||
+        wireframe_index_bytes >
+            std::numeric_limits<std::uint32_t>::max()) {
         return renderer_failure(
             RendererErrorCode::invalid_scene,
             "Render scene buffer size exceeds bgfx limits");
@@ -266,12 +285,22 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
             scene.indices.data(),
             static_cast<std::uint32_t>(index_bytes)),
         BGFX_BUFFER_INDEX32);
-    if (!bgfx::isValid(vertices) || !bgfx::isValid(indices)) {
+    const auto wireframe_indices_handle = bgfx::createIndexBuffer(
+        bgfx::copy(
+            wireframe_indices.value().data(),
+            static_cast<std::uint32_t>(wireframe_index_bytes)),
+        BGFX_BUFFER_INDEX32);
+    if (!bgfx::isValid(vertices) ||
+        !bgfx::isValid(indices) ||
+        !bgfx::isValid(wireframe_indices_handle)) {
         if (bgfx::isValid(vertices)) {
             bgfx::destroy(vertices);
         }
         if (bgfx::isValid(indices)) {
             bgfx::destroy(indices);
+        }
+        if (bgfx::isValid(wireframe_indices_handle)) {
+            bgfx::destroy(wireframe_indices_handle);
         }
         return renderer_failure(
             RendererErrorCode::resource_creation_failed,
@@ -284,15 +313,26 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
     if (index_buffer_handle_ != 0xffffU) {
         bgfx::destroy(index_buffer_handle(index_buffer_handle_));
     }
+    if (wireframe_index_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            index_buffer_handle(wireframe_index_buffer_handle_));
+    }
     vertex_buffer_handle_ = vertices.idx;
     index_buffer_handle_ = indices.idx;
+    wireframe_index_buffer_handle_ =
+        wireframe_indices_handle.idx;
     vertex_count_ = static_cast<std::uint32_t>(scene.vertices.size());
     index_count_ = static_cast<std::uint32_t>(scene.indices.size());
+    wireframe_index_count_ = static_cast<std::uint32_t>(
+        wireframe_indices.value().size());
     return core::Result<void, RendererError>::success();
 }
 
 core::Result<void, RendererError> BgfxRenderer::render(
-    const runtime::RuntimeObservation& observation) {
+    const runtime::RuntimeObservation& observation,
+    const FreeCameraInput& camera_input,
+    float elapsed_seconds,
+    bool wireframe) {
     if (!initialized_) {
         return renderer_failure(
             RendererErrorCode::not_initialized,
@@ -308,14 +348,17 @@ core::Result<void, RendererError> BgfxRenderer::render(
     if (vertex_buffer_handle_ != 0xffffU &&
         index_buffer_handle_ != 0xffffU &&
         program_handle_ != 0xffffU) {
+        camera_.update(camera_input, elapsed_seconds);
+        const auto camera_position = camera_.position();
+        const auto camera_target = camera_.target();
         const bx::Vec3 target{
-            scene_center_x_,
-            scene_center_y_,
-            scene_center_z_};
+            camera_target.x,
+            camera_target.y,
+            camera_target.z};
         const bx::Vec3 eye{
-            scene_center_x_,
-            scene_center_y_ + scene_radius_ * 0.55F,
-            scene_center_z_ - scene_radius_ * 1.9F};
+            camera_position.x,
+            camera_position.y,
+            camera_position.z};
         float view[16];
         bx::mtxLookAt(view, eye, target);
         float projection[16];
@@ -331,14 +374,22 @@ core::Result<void, RendererError> BgfxRenderer::render(
         bgfx::setVertexBuffer(
             0,
             vertex_buffer_handle(vertex_buffer_handle_));
+        const auto selected_index_buffer =
+            wireframe
+                ? wireframe_index_buffer_handle_
+                : index_buffer_handle_;
         bgfx::setIndexBuffer(
-            index_buffer_handle(index_buffer_handle_));
-        bgfx::setState(
+            index_buffer_handle(selected_index_buffer));
+        auto render_state =
             BGFX_STATE_WRITE_RGB |
             BGFX_STATE_WRITE_A |
             BGFX_STATE_WRITE_Z |
             BGFX_STATE_DEPTH_TEST_LESS |
-            BGFX_STATE_MSAA);
+            BGFX_STATE_MSAA;
+        if (wireframe) {
+            render_state |= BGFX_STATE_PT_LINES;
+        }
+        bgfx::setState(render_state);
         bgfx::submit(0, program_handle(program_handle_));
     }
     bgfx::touch(0);
@@ -388,12 +439,26 @@ core::Result<void, RendererError> BgfxRenderer::render(
         0x0f,
         "Geometry: %u vertices, %u indices",
         vertex_count_,
-        index_count_);
+        wireframe ? wireframe_index_count_ : index_count_);
     bgfx::dbgTextPrintf(
         3,
         12,
+        0x0b,
+        "Camera: %.1f %.1f %.1f",
+        camera_.position().x,
+        camera_.position().y,
+        camera_.position().z);
+    bgfx::dbgTextPrintf(
+        3,
+        14,
         0x08,
-        "Close the window or press Escape to exit.");
+        "WASD move, Q/E down/up, arrows look, Shift boosts.");
+    bgfx::dbgTextPrintf(
+        3,
+        15,
+        0x08,
+        "F1 toggles %s view. Escape exits.",
+        wireframe ? "solid" : "wireframe");
     static_cast<void>(bgfx::frame());
     return core::Result<void, RendererError>::success();
 }
@@ -408,6 +473,10 @@ void BgfxRenderer::shutdown() noexcept {
     if (index_buffer_handle_ != 0xffffU) {
         bgfx::destroy(index_buffer_handle(index_buffer_handle_));
     }
+    if (wireframe_index_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            index_buffer_handle(wireframe_index_buffer_handle_));
+    }
     if (program_handle_ != 0xffffU) {
         bgfx::destroy(program_handle(program_handle_));
     }
@@ -419,12 +488,12 @@ void BgfxRenderer::shutdown() noexcept {
     program_handle_ = 0xffffU;
     vertex_buffer_handle_ = 0xffffU;
     index_buffer_handle_ = 0xffffU;
+    wireframe_index_buffer_handle_ = 0xffffU;
     vertex_count_ = 0;
     index_count_ = 0;
-    scene_center_x_ = 0.0F;
-    scene_center_y_ = 0.0F;
-    scene_center_z_ = 0.0F;
+    wireframe_index_count_ = 0;
     scene_radius_ = 1.0F;
+    camera_ = FreeCamera{};
 }
 
 bool BgfxRenderer::initialized() const noexcept {

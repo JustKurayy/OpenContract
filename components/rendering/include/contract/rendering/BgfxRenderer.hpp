@@ -1,6 +1,7 @@
 #pragma once
 
 #include <contract/core/Result.hpp>
+#include <contract/rendering/FreeCamera.hpp>
 #include <contract/runtime/RuntimeObservation.hpp>
 #include <contract/scene/RenderScene.hpp>
 
@@ -47,7 +48,10 @@ public:
         const scene::RenderScene& scene);
 
     [[nodiscard]] core::Result<void, RendererError> render(
-        const runtime::RuntimeObservation& observation);
+        const runtime::RuntimeObservation& observation,
+        const FreeCameraInput& camera_input,
+        float elapsed_seconds,
+        bool wireframe);
 
     void shutdown() noexcept;
 
@@ -62,12 +66,12 @@ private:
     std::uint16_t program_handle_{0xffffU};
     std::uint16_t vertex_buffer_handle_{0xffffU};
     std::uint16_t index_buffer_handle_{0xffffU};
+    std::uint16_t wireframe_index_buffer_handle_{0xffffU};
     std::uint32_t vertex_count_{0};
     std::uint32_t index_count_{0};
-    float scene_center_x_{0.0F};
-    float scene_center_y_{0.0F};
-    float scene_center_z_{0.0F};
+    std::uint32_t wireframe_index_count_{0};
     float scene_radius_{1.0F};
+    FreeCamera camera_;
 };
 
 }
