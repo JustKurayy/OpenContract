@@ -1,5 +1,7 @@
 #include <contract/platform/NativeRuntimeRunner.hpp>
 
+#include <contract/rendering/BgfxRenderer.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -41,46 +43,15 @@ std::wstring widen_ascii(std::string_view value) {
 
 struct WindowState {
     runtime::RuntimeObservation observation;
+    std::uint32_t width{960};
+    std::uint32_t height{540};
     bool closed{false};
+    bool resized{false};
 };
 
-void paint_window(HWND window, const WindowState& state) {
+void validate_paint(HWND window) {
     PAINTSTRUCT paint{};
-    const HDC device = BeginPaint(window, &paint);
-    RECT client{};
-    static_cast<void>(GetClientRect(window, &client));
-    const HBRUSH background = CreateSolidBrush(RGB(20, 23, 29));
-    if (background != nullptr) {
-        static_cast<void>(FillRect(device, &client, background));
-        static_cast<void>(DeleteObject(background));
-    }
-
-    static_cast<void>(SetBkMode(device, TRANSPARENT));
-    static_cast<void>(SetTextColor(device, RGB(226, 232, 240)));
-    RECT text_area = client;
-    text_area.left += 32;
-    text_area.top += 28;
-    text_area.right -= 32;
-    text_area.bottom -= 28;
-
-    std::wstring text =
-        L"OpenContract\n\nOpen mod mission: ";
-    text.append(widen_ascii(state.observation.mission.value()));
-    text.append(L"\nMap: ");
-    text.append(widen_ascii(state.observation.map.value()));
-    text.append(L"\nSimulation tick: ");
-    text.append(std::to_wstring(state.observation.completed_ticks));
-    text.append(L"\nEntities: ");
-    text.append(std::to_wstring(state.observation.entities.size()));
-    text.append(L"\nObjectives: ");
-    text.append(std::to_wstring(state.observation.objectives.size()));
-    text.append(L"\n\nClose the window or press Escape to exit.");
-    static_cast<void>(DrawTextW(
-        device,
-        text.c_str(),
-        -1,
-        &text_area,
-        DT_LEFT | DT_TOP | DT_NOPREFIX));
+    static_cast<void>(BeginPaint(window, &paint));
     static_cast<void>(EndPaint(window, &paint));
 }
 
@@ -115,12 +86,21 @@ LRESULT CALLBACK runtime_window_proc(
             return 0;
         }
         break;
-    case WM_PAINT:
-        if (state != nullptr) {
-            paint_window(window, *state);
-            return 0;
+    case WM_SIZE:
+        if (state != nullptr && word != SIZE_MINIMIZED) {
+            state->width = static_cast<std::uint32_t>(
+                LOWORD(data));
+            state->height = static_cast<std::uint32_t>(
+                HIWORD(data));
+            state->resized =
+                state->width > 0 && state->height > 0;
         }
-        break;
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+        validate_paint(window);
+        return 0;
     default:
         break;
     }
@@ -215,13 +195,23 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
     }
 
 #ifdef _WIN32
-    WindowState state{host.observe(), false};
+    WindowState state{host.observe()};
     auto created_window = create_runtime_window(state, visibility_);
     if (!created_window.has_value()) {
         return core::Result<void, runtime::RuntimeRunnerError>::failure(
             created_window.error());
     }
     const HWND window = created_window.value();
+    rendering::BgfxRenderer renderer;
+    auto renderer_initialized = renderer.initialize(
+        window,
+        state.width,
+        state.height);
+    if (!renderer_initialized.has_value()) {
+        static_cast<void>(DestroyWindow(window));
+        return platform_failure(
+            renderer_initialized.error().message);
+    }
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();
 
@@ -244,6 +234,18 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             break;
         }
 
+        if (state.resized) {
+            auto resized = renderer.resize(
+                state.width,
+                state.height);
+            if (!resized.has_value()) {
+                renderer.shutdown();
+                static_cast<void>(DestroyWindow(window));
+                return platform_failure(resized.error().message);
+            }
+            state.resized = false;
+        }
+
         const auto current_time = std::chrono::steady_clock::now();
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -251,6 +253,7 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
         previous_time = current_time;
         auto frame = host.advance(elapsed, {});
         if (!frame.has_value()) {
+            renderer.shutdown();
             if (IsWindow(window) != FALSE) {
                 static_cast<void>(DestroyWindow(window));
             }
@@ -261,7 +264,12 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
                 });
         }
         state.observation = std::move(frame.value().observation);
-        static_cast<void>(InvalidateRect(window, nullptr, FALSE));
+        auto rendered = renderer.render(state.observation);
+        if (!rendered.has_value()) {
+            renderer.shutdown();
+            static_cast<void>(DestroyWindow(window));
+            return platform_failure(rendered.error().message);
+        }
 
         if (options.maximum_frames.has_value() &&
             state.observation.completed_ticks - starting_tick >=
@@ -276,6 +284,7 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             MWMO_INPUTAVAILABLE));
     }
 
+    renderer.shutdown();
     if (IsWindow(window) != FALSE) {
         static_cast<void>(DestroyWindow(window));
     }
