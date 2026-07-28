@@ -6,7 +6,9 @@
 #include <contract/diagnostics/DiagnosticSink.hpp>
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/modding/ModManifest.hpp>
+#include <contract/runtime/RuntimeRunner.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -84,6 +86,48 @@ private:
     std::filesystem::path path_;
 };
 
+class RecordingRunner final : public contract::runtime::IRuntimeRunner {
+public:
+    contract::core::Result<void, contract::runtime::RuntimeRunnerError> run(
+        contract::runtime::RuntimeHost& host,
+        const contract::runtime::RuntimeRunnerOptions& options) override {
+        ++calls;
+        maximum_frames = options.maximum_frames;
+        initial_observation = host.observe();
+        if (fail) {
+            return contract::core::Result<
+                void,
+                contract::runtime::RuntimeRunnerError>::failure(
+                {
+                    contract::runtime::RuntimeRunnerErrorCode::platform_failed,
+                    "Synthetic runner failure"
+                });
+        }
+        const auto frame = host.advance(
+            initial_observation.simulation_step,
+            {});
+        if (!frame.has_value()) {
+            return contract::core::Result<
+                void,
+                contract::runtime::RuntimeRunnerError>::failure(
+                {
+                    contract::runtime::RuntimeRunnerErrorCode::host_advance_failed,
+                    frame.error().message
+                });
+        }
+        final_observation = frame.value().observation;
+        return contract::core::Result<
+            void,
+            contract::runtime::RuntimeRunnerError>::success();
+    }
+
+    std::size_t calls{0};
+    bool fail{false};
+    std::optional<std::uint64_t> maximum_frames;
+    contract::runtime::RuntimeObservation initial_observation;
+    contract::runtime::RuntimeObservation final_observation;
+};
+
 contract::modding::ModPackage package_with_mission(std::string mission_id) {
     using namespace contract;
     const scene::MapId map_id("map.synthetic");
@@ -129,7 +173,9 @@ int main() {
             "--mod-manifest",
             "C:/Synthetic Mods/addon.json",
             "--mission",
-            "mission.synthetic"
+            "mission.synthetic",
+            "--max-frames",
+            "3"
         },
         errors);
 
@@ -145,6 +191,9 @@ int main() {
     CONTRACT_EXPECT_EQ(
         options->mission.value(),
         std::string("mission.synthetic"));
+    CONTRACT_EXPECT_EQ(
+        options->maximum_frames.value(),
+        std::uint64_t{3});
 
     std::ostringstream missing_value_errors;
     const auto missing_value = contract::runtime::parse_runtime_options(
@@ -160,6 +209,13 @@ int main() {
     CONTRACT_EXPECT(!unknown.has_value());
     CONTRACT_EXPECT(!unknown_errors.str().empty());
 
+    std::ostringstream invalid_frame_errors;
+    const auto invalid_frames = contract::runtime::parse_runtime_options(
+        {"--max-frames", "0"},
+        invalid_frame_errors);
+    CONTRACT_EXPECT(!invalid_frames.has_value());
+    CONTRACT_EXPECT(!invalid_frame_errors.str().empty());
+
     using contract::filesystem::EntryType;
     using contract::installation::RecognitionPolicy;
     using contract::runtime::RuntimeContext;
@@ -171,13 +227,15 @@ int main() {
         {{}, "engine.bin", EntryType::file, 64},
         {{}, "levels", EntryType::directory, 0}};
     contract::diagnostics::DiagnosticBuffer diagnostics;
+    RecordingRunner runner;
     const RuntimeContext context{
         filesystem,
         diagnostics,
         RecognitionPolicy{{"engine.bin"}, {"levels"}, 2},
         std::nullopt,
         std::nullopt,
-        {}};
+        {},
+        &runner};
 
     TemporaryDirectory temporary;
     const auto manifest_path = temporary.path() / "package.contract.json";
@@ -187,6 +245,7 @@ int main() {
     runnable.game_path = std::filesystem::path("C:/synthetic-install");
     runnable.mod_manifests.push_back(manifest_path);
     runnable.mission = "mission.synthetic";
+    runnable.maximum_frames = std::uint64_t{3};
 
     std::ostringstream runtime_output;
     std::ostringstream runtime_errors;
@@ -197,10 +256,10 @@ int main() {
         runtime_errors);
     CONTRACT_EXPECT_EQ(
         runtime_exit,
-        static_cast<int>(RuntimeExitCode::not_implemented));
+        static_cast<int>(RuntimeExitCode::success));
     CONTRACT_EXPECT(runtime_errors.str().empty());
     CONTRACT_EXPECT(
-        runtime_output.str().find("runtime.not-implemented") != std::string::npos);
+        runtime_output.str().find("runtime.boot") != std::string::npos);
     CONTRACT_EXPECT(
         runtime_output.str().find("1 mod package") != std::string::npos);
     CONTRACT_EXPECT(
@@ -213,13 +272,39 @@ int main() {
         std::string::npos);
     CONTRACT_EXPECT(
         runtime_output.str().find(
-            "observation tick 0, next event sequence 0") !=
+            "closed after 1 tick") !=
         std::string::npos);
+    CONTRACT_EXPECT_EQ(runner.calls, std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        runner.maximum_frames.value(),
+        std::uint64_t{3});
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.completed_ticks,
+        std::uint64_t{0});
+    CONTRACT_EXPECT_EQ(
+        runner.final_observation.completed_ticks,
+        std::uint64_t{1});
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());
     CONTRACT_EXPECT_EQ(
         diagnostics.diagnostics().back().code,
-        std::string("runtime.not-implemented"));
+        std::string("runtime.boot"));
+
+    runner.fail = true;
+    std::ostringstream runner_output;
+    std::ostringstream runner_errors;
+    const auto runner_exit = contract::runtime::run_runtime(
+        runnable,
+        context,
+        runner_output,
+        runner_errors);
+    CONTRACT_EXPECT_EQ(
+        runner_exit,
+        static_cast<int>(RuntimeExitCode::runtime_failed));
+    CONTRACT_EXPECT(
+        runner_errors.str().find("Synthetic runner failure") !=
+        std::string::npos);
+    runner.fail = false;
 
     runnable.mission = "mission.missing";
     std::ostringstream mission_output;

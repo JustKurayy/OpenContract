@@ -3,7 +3,9 @@
 #include <contract/diagnostics/DiagnosticSink.hpp>
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/installation/Installation.hpp>
+#include <contract/runtime/RuntimeRunner.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <iosfwd>
 #include <optional>
@@ -16,6 +18,7 @@ struct RuntimeOptions {
     std::optional<std::filesystem::path> game_path;
     std::vector<std::filesystem::path> mod_manifests;
     std::optional<std::string> mission;
+    std::optional<std::uint64_t> maximum_frames;
     bool help{false};
 };
 
@@ -26,6 +29,7 @@ struct RuntimeContext {
     std::optional<std::filesystem::path> environment_path;
     std::optional<std::filesystem::path> configured_path;
     std::vector<std::filesystem::path> probe_paths;
+    IRuntimeRunner* runner{nullptr};
 };
 
 enum class RuntimeExitCode : int {
@@ -36,6 +40,7 @@ enum class RuntimeExitCode : int {
     mod_set_invalid = 5,
     mission_invalid = 6,
     session_invalid = 7,
+    runtime_failed = 8,
     not_implemented = 10
 };
 

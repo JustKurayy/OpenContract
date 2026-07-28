@@ -4,9 +4,11 @@
 #include <contract/runtime/RuntimeSession.hpp>
 #include <contract/runtime/RuntimeWorld.hpp>
 
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <ostream>
+#include <system_error>
 
 namespace contract::runtime {
 namespace {
@@ -42,6 +44,24 @@ std::optional<RuntimeOptions> parse_runtime_options(
                 return std::nullopt;
             }
             options.mission = arguments[++index];
+        } else if (argument == "--max-frames") {
+            if (index + 1 >= arguments.size()) {
+                errors << "--max-frames requires a positive integer\n";
+                return std::nullopt;
+            }
+            const auto& value = arguments[++index];
+            std::uint64_t parsed = 0;
+            const auto result = std::from_chars(
+                value.data(),
+                value.data() + value.size(),
+                parsed);
+            if (result.ec != std::errc{} ||
+                result.ptr != value.data() + value.size() ||
+                parsed == 0) {
+                errors << "--max-frames requires a positive integer\n";
+                return std::nullopt;
+            }
+            options.maximum_frames = parsed;
         } else if (argument == "--help" || argument == "-h") {
             options.help = true;
         } else {
@@ -55,7 +75,8 @@ std::optional<RuntimeOptions> parse_runtime_options(
 void print_runtime_help(std::ostream& output) {
     output
         << "Usage: contract-runtime [--game-path <directory>]"
-        << " [--mod-manifest <file>]... [--mission <identifier>] [--help]\n";
+        << " [--mod-manifest <file>]... [--mission <identifier>]"
+        << " [--max-frames <count>] [--help]\n";
 }
 
 int run_runtime(
@@ -202,6 +223,77 @@ int run_runtime(
     const auto package_count = package_set.has_value()
         ? package_set->packages.size()
         : std::size_t{0};
+    if (session.has_value() && context.runner != nullptr) {
+        auto host_result = RuntimeHost::create(std::move(*session), {});
+        if (!host_result.has_value()) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.host",
+                    host_result.error().message,
+                    std::nullopt,
+                    std::nullopt
+                });
+            errors << "[runtime.host] "
+                   << host_result.error().message
+                   << '\n';
+            return static_cast<int>(RuntimeExitCode::runtime_failed);
+        }
+        auto host = std::move(host_result.value());
+        const auto initial = host.observe();
+        output << "[runtime.boot] Booting "
+               << package_count
+               << " mod package";
+        if (package_count != 1) {
+            output << 's';
+        }
+        output << "; selected mission "
+               << initial.mission.value()
+               << "; initialized "
+               << initial.entities.size()
+               << " entities and "
+               << initial.objectives.size()
+               << " objectives; simulation step "
+               << initial.simulation_step.count()
+               << " ns\n";
+
+        const auto run_result = context.runner->run(
+            host,
+            {options.maximum_frames});
+        if (!run_result.has_value()) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.runner",
+                    run_result.error().message,
+                    std::nullopt,
+                    std::nullopt
+                });
+            errors << "[runtime.runner] "
+                   << run_result.error().message
+                   << '\n';
+            return static_cast<int>(RuntimeExitCode::runtime_failed);
+        }
+
+        const auto final = host.observe();
+        output << "[runtime.boot] Runtime closed after "
+               << final.completed_ticks
+               << " tick";
+        if (final.completed_ticks != 1) {
+            output << 's';
+        }
+        output << '\n';
+        context.diagnostics.emit(
+            {
+                diagnostics::Severity::information,
+                "runtime.boot",
+                "Runtime closed cleanly",
+                report.canonical_path,
+                std::nullopt
+            });
+        return static_cast<int>(RuntimeExitCode::success);
+    }
+
     output << "[runtime.not-implemented] Runtime not implemented; validated "
            << package_count
            << " mod package";
