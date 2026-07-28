@@ -2,6 +2,7 @@ add_library(contract-runtime-support
     src/Runtime.cpp
     src/RuntimeCommand.cpp
     src/RuntimeEventJournal.cpp
+    src/RuntimeHost.cpp
     src/RuntimeObservation.cpp
     src/RuntimeSession.cpp
     src/RuntimeSystem.cpp

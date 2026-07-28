@@ -86,6 +86,9 @@ target_link_libraries(contract-runtime-system-tests PRIVATE OpenContract::runtim
 contract_add_test(contract-runtime-observation-tests runtime/RuntimeObservationTests.cpp)
 target_link_libraries(contract-runtime-observation-tests PRIVATE OpenContract::runtime-support)
 
+contract_add_test(contract-runtime-host-tests runtime/RuntimeHostTests.cpp)
+target_link_libraries(contract-runtime-host-tests PRIVATE OpenContract::runtime-support)
+
 contract_add_test(contract-launcher-tests launcher/LauncherTests.cpp)
 target_link_libraries(contract-launcher-tests PRIVATE OpenContract::launcher-support)
 
