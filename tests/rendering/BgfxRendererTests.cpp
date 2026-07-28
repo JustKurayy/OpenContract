@@ -44,6 +44,12 @@ int main() {
     CONTRACT_EXPECT_EQ(
         upload_before_initialize.error().code,
         rendering::RendererErrorCode::not_initialized);
+    const auto player_upload_before_initialize =
+        renderer.upload_player_model(scene);
+    CONTRACT_EXPECT(!player_upload_before_initialize.has_value());
+    CONTRACT_EXPECT_EQ(
+        player_upload_before_initialize.error().code,
+        rendering::RendererErrorCode::not_initialized);
 
     const auto missing_window = renderer.initialize(
         nullptr,

@@ -404,7 +404,11 @@ int run_runtime(
                    << source_mission->visibility_group_count
                    << " visibility groups, "
                    << source_mission->collision_meshes
-                   << " collision meshes suppressed, "
+                   << " collision meshes and "
+                   << source_mission->walkable_render_triangles
+                   << " walkable render triangles retained as "
+                   << source_mission->collision_scene.indices.size() / 3U
+                   << " query triangles, "
                    << source_mission->overlay_meshes
                    << " overlay meshes suppressed, "
                    << source_mission->texture_count
@@ -415,8 +419,25 @@ int run_runtime(
                    << " fallback indices, "
                    << materialless_indices
                    << " materialless) from "
-                   << source_mission->archive_path.string()
-                   << '\n';
+                       << source_mission->archive_path.string()
+                       << '\n';
+            if (source_mission->player_model.has_value()) {
+                const auto& player_model =
+                    source_mission->player_model.value();
+                output << "[runtime.source-mission] Loaded source base "
+                       << "player model with "
+                       << player_model.vertices.size()
+                       << " vertices, "
+                       << player_model.indices.size()
+                       << " indices, "
+                       << player_model.batches.size()
+                       << " render batches, and "
+                       << player_model.textures.size()
+                       << " textures\n";
+            } else {
+                output << "[runtime.source-mission] No source base "
+                       << "player model found; using procedural fallback\n";
+            }
             if (source_mission->preferred_spawn.has_value()) {
                 const auto& position =
                     source_mission->preferred_spawn->position;
@@ -437,6 +458,13 @@ int run_runtime(
                 options.maximum_frames,
                 source_mission.has_value()
                     ? &source_mission->render_scene
+                    : nullptr,
+                source_mission.has_value()
+                    ? &source_mission->collision_scene
+                    : nullptr,
+                source_mission.has_value() &&
+                        source_mission->player_model.has_value()
+                    ? &source_mission->player_model.value()
                     : nullptr,
                 source_mission.has_value()
                     ? std::optional<scene::EntityId>{

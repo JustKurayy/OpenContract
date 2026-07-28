@@ -1,5 +1,6 @@
 #include <contract/platform/NativeRuntimeRunner.hpp>
 
+#include <contract/collision/StaticCollisionWorld.hpp>
 #include <contract/rendering/BgfxRenderer.hpp>
 #include <contract/runtime/PlayerController.hpp>
 
@@ -288,9 +289,42 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             return platform_failure(uploaded.error().message);
         }
     }
+    if (options.player_model != nullptr) {
+        auto uploaded = renderer.upload_player_model(
+            *options.player_model);
+        if (!uploaded.has_value()) {
+            renderer.shutdown();
+            static_cast<void>(DestroyWindow(window));
+            return platform_failure(uploaded.error().message);
+        }
+    }
+    std::optional<collision::StaticCollisionWorld> collision_world;
+    if (options.collision_scene != nullptr &&
+        !options.collision_scene->indices.empty()) {
+        auto created = collision::StaticCollisionWorld::create(
+            *options.collision_scene);
+        if (!created.has_value()) {
+            renderer.shutdown();
+            static_cast<void>(DestroyWindow(window));
+            return platform_failure(created.error().message);
+        }
+        collision_world.emplace(std::move(created.value()));
+    }
     std::optional<runtime::PlayerController> player_controller;
     if (options.controlled_entity.has_value()) {
-        player_controller.emplace(*options.controlled_entity);
+        if (collision_world.has_value()) {
+            player_controller.emplace(
+                *options.controlled_entity,
+                *collision_world,
+                collision::GroundedMotionConfig{
+                    18.0F,
+                    172.0F,
+                    35.0F,
+                    150.0F
+                });
+        } else {
+            player_controller.emplace(*options.controlled_entity);
+        }
     }
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();

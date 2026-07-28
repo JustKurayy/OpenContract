@@ -6,6 +6,7 @@
 #include <contract/formats/PrimitiveSceneDecoder.hpp>
 #include <contract/formats/ScenePlacementDecoder.hpp>
 #include <contract/formats/TextureDatabaseDecoder.hpp>
+#include <contract/scene/CollisionScene.hpp>
 #include <contract/scene/RenderScene.hpp>
 #include <contract/scene/Scene.hpp>
 
@@ -33,6 +34,8 @@ struct SourceSceneBuildError {
 struct SourceSceneBuildLimits {
     std::size_t max_vertices{8'000'000};
     std::size_t max_indices{24'000'000};
+    std::size_t max_collision_vertices{4'000'000};
+    std::size_t max_collision_indices{12'000'000};
 };
 
 struct SourceSceneBuildResources {
@@ -43,10 +46,13 @@ struct SourceSceneBuildResources {
 
 struct SourceSceneBuildHints {
     std::span<const std::string_view> preferred_spawn_nodes;
+    std::span<const std::string_view> preferred_character_nodes;
 };
 
 struct SourceSceneBuildResult {
     scene::RenderScene render_scene;
+    scene::CollisionScene collision_scene;
+    std::optional<scene::RenderScene> player_model;
     std::optional<scene::Transform> preferred_spawn;
     std::size_t active_placements{0};
     std::size_t inactive_placements{0};
@@ -56,6 +62,7 @@ struct SourceSceneBuildResult {
     std::size_t missing_placements{0};
     std::size_t visibility_group_count{0};
     std::size_t collision_meshes{0};
+    std::size_t walkable_render_triangles{0};
     std::size_t overlay_meshes{0};
 };
 

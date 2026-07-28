@@ -95,6 +95,14 @@ public:
         ++calls;
         maximum_frames = options.maximum_frames;
         controlled_entity = options.controlled_entity;
+        collision_index_count =
+            options.collision_scene == nullptr
+                ? 0
+                : options.collision_scene->indices.size();
+        player_model_vertex_count =
+            options.player_model == nullptr
+                ? 0
+                : options.player_model->vertices.size();
         render_vertex_count = options.render_scene == nullptr
             ? 0
             : options.render_scene->vertices.size();
@@ -130,6 +138,8 @@ public:
     bool fail{false};
     std::optional<std::uint64_t> maximum_frames;
     std::optional<contract::scene::EntityId> controlled_entity;
+    std::size_t collision_index_count{0};
+    std::size_t player_model_vertex_count{0};
     std::size_t render_vertex_count{0};
     contract::runtime::RuntimeObservation initial_observation;
     contract::runtime::RuntimeObservation final_observation;
@@ -164,6 +174,21 @@ public:
         result.active_placements = 1;
         result.preferred_spawn = contract::scene::Transform{
             {100.0F, 200.0F, 300.0F}};
+        result.collision_scene.vertices = {
+            {0.0F, 0.0F, 0.0F},
+            {100.0F, 0.0F, 0.0F},
+            {0.0F, 0.0F, 100.0F}
+        };
+        result.collision_scene.indices = {0, 1, 2};
+        contract::scene::RenderScene player_model;
+        player_model.vertices = {
+            {0.0F, 0.0F, 0.0F},
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F}
+        };
+        player_model.indices = {0, 1, 2};
+        player_model.batches.push_back({0, 3});
+        result.player_model = std::move(player_model);
         return contract::core::Result<
             contract::mission::SourceMissionLoadResult,
             contract::mission::SourceMissionLoadError>::success(
@@ -370,6 +395,12 @@ int main() {
     CONTRACT_EXPECT_EQ(source_loader.calls, std::size_t{1});
     CONTRACT_EXPECT_EQ(source_loader.selected_mission, std::string("M00"));
     CONTRACT_EXPECT_EQ(runner.render_vertex_count, std::size_t{3});
+    CONTRACT_EXPECT_EQ(
+        runner.collision_index_count,
+        std::size_t{3});
+    CONTRACT_EXPECT_EQ(
+        runner.player_model_vertex_count,
+        std::size_t{3});
     CONTRACT_EXPECT(runner.controlled_entity.has_value());
     CONTRACT_EXPECT_EQ(
         runner.controlled_entity->value(),

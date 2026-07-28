@@ -14,6 +14,18 @@ PlayerController::PlayerController(
       movement_speed_(movement_speed),
       sprint_multiplier_(sprint_multiplier) {}
 
+PlayerController::PlayerController(
+    scene::EntityId player,
+    const collision::StaticCollisionWorld& collision_world,
+    collision::GroundedMotionConfig collision_config,
+    float movement_speed,
+    float sprint_multiplier)
+    : player_(std::move(player)),
+      collision_world_(&collision_world),
+      collision_config_(collision_config),
+      movement_speed_(movement_speed),
+      sprint_multiplier_(sprint_multiplier) {}
+
 core::Result<
     std::optional<RuntimeCommand>,
     PlayerControllerError>
@@ -74,29 +86,57 @@ PlayerController::update(
     auto forward = std::clamp(input.forward, -1.0F, 1.0F);
     const auto length = std::sqrt(
         right * right + forward * forward);
-    if (length <= 0.0001F) {
+    const auto moving = length > 0.0001F;
+    if (!moving && collision_world_ == nullptr) {
         return core::Result<
             std::optional<RuntimeCommand>,
             PlayerControllerError>::success(std::nullopt);
     }
-    if (length > 1.0F) {
+    if (moving && length > 1.0F) {
         right /= length;
         forward /= length;
     }
 
     auto transform = player->transform;
-    const auto speed =
-        movement_speed_ *
-        (input.sprint ? sprint_multiplier_ : 1.0F);
-    transform.position[0] += right * speed * elapsed_seconds;
-    transform.position[2] += forward * speed * elapsed_seconds;
-    const auto yaw = std::atan2(right, forward);
-    transform.rotation = {
-        0.0F,
-        std::sin(yaw * 0.5F),
-        0.0F,
-        std::cos(yaw * 0.5F)
-    };
+    if (moving) {
+        const auto speed =
+            movement_speed_ *
+            (input.sprint ? sprint_multiplier_ : 1.0F);
+        transform.position[0] +=
+            right * speed * elapsed_seconds;
+        transform.position[2] +=
+            forward * speed * elapsed_seconds;
+        const auto yaw = std::atan2(right, forward);
+        transform.rotation = {
+            0.0F,
+            std::sin(yaw * 0.5F),
+            0.0F,
+            std::cos(yaw * 0.5F)
+        };
+    }
+    if (collision_world_ != nullptr) {
+        const auto resolved =
+            collision_world_->resolve_grounded_motion(
+                player->transform.position,
+                transform.position,
+                collision_config_);
+        if (!resolved.has_value()) {
+            return core::Result<
+                std::optional<RuntimeCommand>,
+                PlayerControllerError>::failure(
+                {
+                    PlayerControllerErrorCode::collision_failed,
+                    resolved.error().message
+                });
+        }
+        transform.position = resolved.value().position;
+        if (!moving &&
+            transform.position == player->transform.position) {
+            return core::Result<
+                std::optional<RuntimeCommand>,
+                PlayerControllerError>::success(std::nullopt);
+        }
+    }
     return core::Result<
         std::optional<RuntimeCommand>,
         PlayerControllerError>::success(

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <contract/collision/StaticCollisionWorld.hpp>
 #include <contract/core/Result.hpp>
 #include <contract/runtime/RuntimeCommand.hpp>
 #include <contract/runtime/RuntimeObservation.hpp>
@@ -23,6 +24,7 @@ enum class PlayerControllerErrorCode {
     invalid_elapsed_time,
     invalid_input,
     invalid_configuration,
+    collision_failed,
     player_not_found
 };
 
@@ -39,6 +41,13 @@ public:
         float movement_speed = 300.0F,
         float sprint_multiplier = 2.0F);
 
+    PlayerController(
+        scene::EntityId player,
+        const collision::StaticCollisionWorld& collision_world,
+        collision::GroundedMotionConfig collision_config,
+        float movement_speed = 300.0F,
+        float sprint_multiplier = 2.0F);
+
     [[nodiscard]] core::Result<
         std::optional<RuntimeCommand>,
         PlayerControllerError>
@@ -49,6 +58,8 @@ public:
 
 private:
     scene::EntityId player_;
+    const collision::StaticCollisionWorld* collision_world_{nullptr};
+    collision::GroundedMotionConfig collision_config_;
     float movement_speed_{300.0F};
     float sprint_multiplier_{2.0F};
 };

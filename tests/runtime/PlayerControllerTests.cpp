@@ -1,5 +1,6 @@
 #include "TestSupport.hpp"
 
+#include <contract/collision/StaticCollisionWorld.hpp>
 #include <contract/runtime/ExplorationObjectiveSystem.hpp>
 #include <contract/runtime/PlayerController.hpp>
 #include <contract/runtime/RuntimeSession.hpp>
@@ -56,6 +57,18 @@ contract::runtime::RuntimeWorld exploration_world() {
         std::nullopt,
         {{player, true}},
         {{objective, runtime::ObjectiveProgress::pending}});
+}
+
+contract::scene::CollisionScene grounding_scene() {
+    contract::scene::CollisionScene scene;
+    scene.vertices = {
+        {-100.0F, 5.0F, -100.0F},
+        {100.0F, 5.0F, -100.0F},
+        {100.0F, 5.0F, 100.0F},
+        {-100.0F, 5.0F, 100.0F}
+    };
+    scene.indices = {0, 2, 1, 0, 3, 2};
+    return scene;
 }
 
 }
@@ -150,6 +163,37 @@ int main() {
     CONTRACT_EXPECT_EQ(
         missing.error().code,
         runtime::PlayerControllerErrorCode::player_not_found);
+
+    auto collision_world =
+        collision::StaticCollisionWorld::create(
+            grounding_scene());
+    CONTRACT_EXPECT(collision_world.has_value());
+    const runtime::PlayerController grounded_controller(
+        scene::EntityId("player.synthetic"),
+        collision_world.value(),
+        {
+            20.0F,
+            180.0F,
+            25.0F,
+            100.0F
+        },
+        10.0F,
+        2.0F);
+    const auto grounded = grounded_controller.update(
+        observation_with_player(),
+        idle,
+        1.0F);
+    CONTRACT_EXPECT(grounded.has_value());
+    CONTRACT_EXPECT(grounded.value().has_value());
+    if (grounded.has_value() &&
+        grounded.value().has_value()) {
+        const auto& command =
+            std::get<runtime::SetEntityTransformCommand>(
+                grounded.value().value());
+        CONTRACT_EXPECT_EQ(
+            command.transform.position[1],
+            5.0F);
+    }
 
     auto session = runtime::RuntimeSession::create(
         exploration_world(),

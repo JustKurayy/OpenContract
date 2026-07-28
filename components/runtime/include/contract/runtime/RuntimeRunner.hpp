@@ -2,8 +2,9 @@
 
 #include <contract/core/Result.hpp>
 #include <contract/runtime/RuntimeHost.hpp>
-#include <contract/scene/Scene.hpp>
+#include <contract/scene/CollisionScene.hpp>
 #include <contract/scene/RenderScene.hpp>
+#include <contract/scene/Scene.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -14,6 +15,8 @@ namespace contract::runtime {
 struct RuntimeRunnerOptions {
     std::optional<std::uint64_t> maximum_frames;
     const scene::RenderScene* render_scene{nullptr};
+    const scene::CollisionScene* collision_scene{nullptr};
+    const scene::RenderScene* player_model{nullptr};
     std::optional<scene::EntityId> controlled_entity;
 };
 

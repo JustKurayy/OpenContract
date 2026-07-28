@@ -1,6 +1,7 @@
 #include <contract/mission/SourceSceneBuilder.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +16,12 @@
 
 namespace contract::mission {
 namespace {
+
+using BatchKey = std::pair<
+    std::uint16_t,
+    std::optional<std::uint32_t>>;
+using BatchIndexMap =
+    std::map<BatchKey, std::vector<std::uint32_t>>;
 
 core::Result<SourceSceneBuildResult, SourceSceneBuildError> failure(
     SourceSceneBuildErrorCode code,
@@ -61,13 +68,13 @@ bool valid_placement(
     return true;
 }
 
-bool is_preferred_spawn(
+bool matches_hint(
     std::string_view node_name,
-    const SourceSceneBuildHints& hints) {
+    std::span<const std::string_view> names) {
     return std::find(
-               hints.preferred_spawn_nodes.begin(),
-               hints.preferred_spawn_nodes.end(),
-               node_name) != hints.preferred_spawn_nodes.end();
+               names.begin(),
+               names.end(),
+               node_name) != names.end();
 }
 
 formats::ScenePlacement compose(
@@ -169,6 +176,102 @@ void apply_material_state(
     }
 }
 
+core::Result<void, SourceSceneBuildError> finalize_batches(
+    scene::RenderScene& scene,
+    BatchIndexMap& indices_by_material,
+    const SourceSceneBuildResources& resources) {
+    std::unordered_map<std::uint32_t, std::size_t>
+        texture_indices;
+    texture_indices.reserve(indices_by_material.size());
+    for (auto& [key, batch_indices] : indices_by_material) {
+        if (batch_indices.empty()) {
+            continue;
+        }
+        if (scene.indices.size() >
+                std::numeric_limits<std::uint32_t>::max() ||
+            batch_indices.size() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            return core::Result<
+                void,
+                SourceSceneBuildError>::failure(
+                {
+                    SourceSceneBuildErrorCode::scene_limit_exceeded,
+                    "Source scene batch exceeds renderer limits"
+                });
+        }
+        scene::RenderBatch batch;
+        batch.first_index = static_cast<std::uint32_t>(
+            scene.indices.size());
+        batch.index_count = static_cast<std::uint32_t>(
+            batch_indices.size());
+        batch.source_material_id = key.first;
+        const formats::MaterialDefinition* material = nullptr;
+        if (resources.materials != nullptr) {
+            material = resources.materials->find(key.first);
+        }
+        apply_material_state(batch, material);
+        scene.indices.insert(
+            scene.indices.end(),
+            batch_indices.begin(),
+            batch_indices.end());
+        if (key.second.has_value()) {
+            if (resources.textures == nullptr) {
+                return core::Result<
+                    void,
+                    SourceSceneBuildError>::failure(
+                    {
+                        SourceSceneBuildErrorCode::invalid_transform,
+                        "Source texture reference has no texture database"
+                    });
+            }
+            const auto* texture =
+                resources.textures->find(key.second.value());
+            if (texture == nullptr) {
+                return core::Result<
+                    void,
+                    SourceSceneBuildError>::failure(
+                    {
+                        SourceSceneBuildErrorCode::invalid_transform,
+                        "Source texture reference is missing"
+                    });
+            }
+            const auto mip =
+                texture->first_mip(resources.texture_bytes);
+            if (!mip.has_value()) {
+                return core::Result<
+                    void,
+                    SourceSceneBuildError>::failure(
+                    {
+                        SourceSceneBuildErrorCode::invalid_transform,
+                        "Source texture data range is invalid"
+                    });
+            }
+            const auto existing =
+                texture_indices.find(texture->texture_id);
+            if (existing != texture_indices.end()) {
+                batch.texture_index = existing->second;
+            } else {
+                batch.texture_index = scene.textures.size();
+                texture_indices.emplace(
+                    texture->texture_id,
+                    batch.texture_index.value());
+                scene.textures.push_back(
+                    {
+                        texture->texture_id,
+                        texture->width,
+                        texture->height,
+                        render_format(texture->format),
+                        std::vector<std::byte>(
+                            mip.value().begin(),
+                            mip.value().end())
+                    });
+            }
+        }
+        scene.batches.push_back(batch);
+    }
+    return core::Result<void, SourceSceneBuildError>::success();
+}
+
 }
 
 core::Result<SourceSceneBuildResult, SourceSceneBuildError>
@@ -199,11 +302,11 @@ SourceSceneBuilder::build(
     std::vector<bool> inherited_inactive;
     inherited_inactive.reserve(placements.size());
     SourceSceneBuildResult result;
-    using BatchKey = std::pair<
-        std::uint16_t,
-        std::optional<std::uint32_t>>;
-    std::map<BatchKey, std::vector<std::uint32_t>> indices_by_material;
+    scene::RenderScene player_model;
+    BatchIndexMap indices_by_material;
+    BatchIndexMap player_indices_by_material;
     std::size_t total_index_count = 0;
+    std::size_t player_index_count = 0;
     for (std::size_t index = 0; index < placements.size(); ++index) {
         const auto& local = placements[index];
         if (!valid_placement(local)) {
@@ -238,6 +341,52 @@ SourceSceneBuilder::build(
         inherited_inactive.push_back(parent_inactive);
     }
 
+    std::optional<std::size_t> character_root;
+    if (!hierarchy.empty()) {
+        for (std::size_t index = 0;
+             index < hierarchy.size();
+             ++index) {
+            if (!placements[index].inactive &&
+                !inherited_inactive[index] &&
+                !placements[index].invisible &&
+                matches_hint(
+                    hierarchy[index].name,
+                    hints.preferred_character_nodes)) {
+                character_root = index;
+                break;
+            }
+        }
+    }
+    std::vector<bool> character_members(
+        placements.size(),
+        false);
+    std::vector<formats::ScenePlacement> character_placements(
+        placements.size());
+    if (character_root.has_value()) {
+        for (std::size_t index = character_root.value();
+             index < placements.size();
+             ++index) {
+            if (index == character_root.value()) {
+                character_members[index] = true;
+                character_placements[index] =
+                    formats::ScenePlacement{};
+                continue;
+            }
+            if (!hierarchy[index].parent_index.has_value()) {
+                continue;
+            }
+            const auto parent =
+                hierarchy[index].parent_index.value();
+            if (!character_members[parent]) {
+                continue;
+            }
+            character_members[index] = true;
+            character_placements[index] = compose(
+                character_placements[parent],
+                placements[index]);
+        }
+    }
+
     for (std::size_t index = 0; index < placements.size(); ++index) {
         const auto& local = placements[index];
         const auto& placement = world_placements[index];
@@ -260,7 +409,9 @@ SourceSceneBuilder::build(
         }
         if (!result.preferred_spawn.has_value() &&
             !hierarchy.empty() &&
-            is_preferred_spawn(hierarchy[index].name, hints)) {
+            matches_hint(
+                hierarchy[index].name,
+                hints.preferred_spawn_nodes)) {
             scene::Transform spawn;
             spawn.position = placement.position;
             result.preferred_spawn = spawn;
@@ -284,33 +435,172 @@ SourceSceneBuilder::build(
                     : resources.materials->find(mesh->material_id);
             if (material != nullptr && material->collision_only) {
                 ++result.collision_meshes;
+                if (character_members[index]) {
+                    continue;
+                }
+                if (result.collision_scene.vertices.size() >
+                        limits.max_collision_vertices ||
+                    mesh->positions.size() >
+                        limits.max_collision_vertices -
+                            result.collision_scene.vertices.size() ||
+                    result.collision_scene.indices.size() >
+                        limits.max_collision_indices ||
+                    mesh->indices.size() >
+                        limits.max_collision_indices -
+                            result.collision_scene.indices.size()) {
+                    return failure(
+                        SourceSceneBuildErrorCode::scene_limit_exceeded,
+                        "Placed source collision exceeds configured limits");
+                }
+                if (result.collision_scene.vertices.size() >
+                    std::numeric_limits<std::uint32_t>::max()) {
+                    return failure(
+                        SourceSceneBuildErrorCode::scene_limit_exceeded,
+                        "Placed source collision vertex index exceeds limits");
+                }
+                const auto collision_base =
+                    static_cast<std::uint32_t>(
+                        result.collision_scene.vertices.size());
+                for (const auto& position : mesh->positions) {
+                    const auto transformed =
+                        transform_position(position, placement);
+                    if (!std::isfinite(transformed.x) ||
+                        !std::isfinite(transformed.y) ||
+                        !std::isfinite(transformed.z)) {
+                        return failure(
+                            SourceSceneBuildErrorCode::invalid_transform,
+                            "Source collision transform produced a "
+                            "non-finite vertex");
+                    }
+                    result.collision_scene.vertices.push_back(
+                        {
+                            transformed.x,
+                            transformed.y,
+                            transformed.z
+                        });
+                }
+                if (mesh->indices.size() % 3U != 0U) {
+                    return failure(
+                        SourceSceneBuildErrorCode::invalid_transform,
+                        "Source collision indices do not form triangles");
+                }
+                const auto collision_index_start =
+                    result.collision_scene.indices.size();
+                for (std::size_t triangle = 0;
+                     triangle < mesh->indices.size();
+                     triangle += 3U) {
+                    const auto first = mesh->indices[triangle];
+                    const auto second = mesh->indices[triangle + 1U];
+                    const auto third = mesh->indices[triangle + 2U];
+                    if (first >= mesh->positions.size() ||
+                        second >= mesh->positions.size() ||
+                        third >= mesh->positions.size()) {
+                        return failure(
+                            SourceSceneBuildErrorCode::invalid_transform,
+                            "Source collision index exceeds its vertices");
+                    }
+                    if (first >
+                            std::numeric_limits<std::uint32_t>::max() -
+                                collision_base ||
+                        second >
+                            std::numeric_limits<std::uint32_t>::max() -
+                                collision_base ||
+                        third >
+                            std::numeric_limits<std::uint32_t>::max() -
+                                collision_base) {
+                        return failure(
+                            SourceSceneBuildErrorCode::scene_limit_exceeded,
+                            "Placed source collision index would overflow");
+                    }
+                    const auto& a = result.collision_scene.vertices[
+                        collision_base + first];
+                    const auto& b = result.collision_scene.vertices[
+                        collision_base + second];
+                    const auto& c = result.collision_scene.vertices[
+                        collision_base + third];
+                    const auto edge_ab = std::array{
+                        b.x - a.x,
+                        b.y - a.y,
+                        b.z - a.z
+                    };
+                    const auto edge_ac = std::array{
+                        c.x - a.x,
+                        c.y - a.y,
+                        c.z - a.z
+                    };
+                    const auto normal = std::array{
+                        edge_ab[1] * edge_ac[2] -
+                            edge_ab[2] * edge_ac[1],
+                        edge_ab[2] * edge_ac[0] -
+                            edge_ab[0] * edge_ac[2],
+                        edge_ab[0] * edge_ac[1] -
+                            edge_ab[1] * edge_ac[0]
+                    };
+                    const auto area_squared =
+                        normal[0] * normal[0] +
+                        normal[1] * normal[1] +
+                        normal[2] * normal[2];
+                    if (area_squared <= 0.00000001F) {
+                        continue;
+                    }
+                    result.collision_scene.indices.insert(
+                        result.collision_scene.indices.end(),
+                        {
+                            collision_base + first,
+                            collision_base + second,
+                            collision_base + third
+                        });
+                }
+                if (result.collision_scene.indices.size() >
+                    collision_index_start) {
+                    ++result.collision_scene.source_mesh_count;
+                }
                 continue;
             }
             if (material != nullptr && material->overlay_only) {
                 ++result.overlay_meshes;
                 continue;
             }
-            if (mesh->positions.size() >
+            auto& target_scene =
+                character_members[index]
+                    ? player_model
+                    : result.render_scene;
+            auto& target_indices =
+                character_members[index]
+                    ? player_indices_by_material
+                    : indices_by_material;
+            auto& target_index_count =
+                character_members[index]
+                    ? player_index_count
+                    : total_index_count;
+            const auto& target_placement =
+                character_members[index]
+                    ? character_placements[index]
+                    : placement;
+            if (target_scene.vertices.size() >
+                    limits.max_vertices ||
+                mesh->positions.size() >
                     limits.max_vertices -
-                        result.render_scene.vertices.size() ||
+                        target_scene.vertices.size() ||
+                target_index_count > limits.max_indices ||
                 mesh->indices.size() >
                     limits.max_indices -
-                        total_index_count) {
+                        target_index_count) {
                 return failure(
                     SourceSceneBuildErrorCode::scene_limit_exceeded,
                     "Placed source scene exceeds configured limits");
             }
-            if (result.render_scene.vertices.size() >
+            if (target_scene.vertices.size() >
                 std::numeric_limits<std::uint32_t>::max()) {
                 return failure(
                     SourceSceneBuildErrorCode::scene_limit_exceeded,
                     "Placed source scene vertex index exceeds renderer limits");
             }
             const auto base_vertex = static_cast<std::uint32_t>(
-                result.render_scene.vertices.size());
+                target_scene.vertices.size());
             for (const auto& position : mesh->positions) {
                 const auto transformed =
-                    transform_position(position, placement);
+                    transform_position(position, target_placement);
                 if (!std::isfinite(transformed.x) ||
                     !std::isfinite(transformed.y) ||
                     !std::isfinite(transformed.z)) {
@@ -318,7 +608,7 @@ SourceSceneBuilder::build(
                         SourceSceneBuildErrorCode::invalid_transform,
                         "Source scene transform produced a non-finite vertex");
                 }
-                result.render_scene.vertices.push_back(transformed);
+                target_scene.vertices.push_back(transformed);
             }
             if (!mesh->texture_coordinates.empty()) {
                 if (mesh->texture_coordinates.size() !=
@@ -330,21 +620,26 @@ SourceSceneBuilder::build(
                 for (std::size_t vertex = 0;
                      vertex < mesh->texture_coordinates.size();
                      ++vertex) {
-                    result.render_scene
+                    target_scene
                         .vertices[base_vertex + vertex]
                         .u = mesh->texture_coordinates[vertex].u;
-                    result.render_scene
+                    target_scene
                         .vertices[base_vertex + vertex]
                         .v = mesh->texture_coordinates[vertex].v;
                 }
             }
             auto& batch_indices =
-                indices_by_material[
+                target_indices[
                     {
                         mesh->material_id,
                         diffuse_texture(*mesh, resources)
                     }];
             for (const auto source_index : mesh->indices) {
+                if (source_index >= mesh->positions.size()) {
+                    return failure(
+                        SourceSceneBuildErrorCode::invalid_transform,
+                        "Source scene index exceeds its vertices");
+                }
                 if (source_index >
                     std::numeric_limits<std::uint32_t>::max() -
                         base_vertex) {
@@ -355,8 +650,8 @@ SourceSceneBuilder::build(
                 batch_indices.push_back(
                     base_vertex + source_index);
             }
-            total_index_count += mesh->indices.size();
-            ++result.render_scene.source_mesh_count;
+            target_index_count += mesh->indices.size();
+            ++target_scene.source_mesh_count;
         }
     }
 
@@ -366,80 +661,114 @@ SourceSceneBuilder::build(
             SourceSceneBuildErrorCode::no_renderable_placements,
             "Source scene contains no supported active placements");
     }
-    std::unordered_map<std::uint32_t, std::size_t>
-        texture_indices;
-    texture_indices.reserve(indices_by_material.size());
-    for (auto& [key, batch_indices] :
-         indices_by_material) {
-        if (batch_indices.empty()) {
+    auto finalized_scene = finalize_batches(
+        result.render_scene,
+        indices_by_material,
+        resources);
+    if (!finalized_scene.has_value()) {
+        return failure(
+            finalized_scene.error().code,
+            finalized_scene.error().message);
+    }
+    if (result.render_scene.indices.size() % 3U != 0U) {
+        return failure(
+            SourceSceneBuildErrorCode::invalid_transform,
+            "Source render indices do not form collision triangles");
+    }
+    std::vector<std::uint32_t> walkable_indices;
+    walkable_indices.reserve(result.render_scene.indices.size());
+    for (std::size_t triangle = 0;
+         triangle < result.render_scene.indices.size();
+         triangle += 3U) {
+        const auto first = result.render_scene.indices[triangle];
+        const auto second =
+            result.render_scene.indices[triangle + 1U];
+        const auto third =
+            result.render_scene.indices[triangle + 2U];
+        const auto& a = result.render_scene.vertices[first];
+        const auto& b = result.render_scene.vertices[second];
+        const auto& c = result.render_scene.vertices[third];
+        const auto edge_ab = std::array{
+            b.x - a.x,
+            b.y - a.y,
+            b.z - a.z
+        };
+        const auto edge_ac = std::array{
+            c.x - a.x,
+            c.y - a.y,
+            c.z - a.z
+        };
+        const auto normal = std::array{
+            edge_ab[1] * edge_ac[2] -
+                edge_ab[2] * edge_ac[1],
+            edge_ab[2] * edge_ac[0] -
+                edge_ab[0] * edge_ac[2],
+            edge_ab[0] * edge_ac[1] -
+                edge_ab[1] * edge_ac[0]
+        };
+        const auto area_squared =
+            normal[0] * normal[0] +
+            normal[1] * normal[1] +
+            normal[2] * normal[2];
+        if (area_squared <= 0.00000001F ||
+            normal[1] * normal[1] <
+                0.25F * area_squared) {
             continue;
         }
-        if (result.render_scene.indices.size() >
-                std::numeric_limits<std::uint32_t>::max() ||
-            batch_indices.size() >
+        walkable_indices.insert(
+            walkable_indices.end(),
+            {first, second, third});
+    }
+    if (!walkable_indices.empty()) {
+        if (result.collision_scene.vertices.size() >
+                limits.max_collision_vertices ||
+            result.render_scene.vertices.size() >
+                limits.max_collision_vertices -
+                    result.collision_scene.vertices.size() ||
+            result.collision_scene.indices.size() >
+                limits.max_collision_indices ||
+            walkable_indices.size() >
+                limits.max_collision_indices -
+                    result.collision_scene.indices.size() ||
+            result.collision_scene.vertices.size() >
                 std::numeric_limits<std::uint32_t>::max()) {
             return failure(
                 SourceSceneBuildErrorCode::scene_limit_exceeded,
-                "Source scene batch exceeds renderer limits");
+                "Walkable source geometry exceeds collision limits");
         }
-        scene::RenderBatch batch;
-        batch.first_index = static_cast<std::uint32_t>(
-            result.render_scene.indices.size());
-        batch.index_count = static_cast<std::uint32_t>(
-            batch_indices.size());
-        batch.source_material_id = key.first;
-        const formats::MaterialDefinition* material = nullptr;
-        if (resources.materials != nullptr) {
-            material = resources.materials->find(key.first);
+        const auto collision_base =
+            static_cast<std::uint32_t>(
+                result.collision_scene.vertices.size());
+        for (const auto& vertex : result.render_scene.vertices) {
+            result.collision_scene.vertices.push_back(
+                {vertex.x, vertex.y, vertex.z});
         }
-        apply_material_state(batch, material);
-        result.render_scene.indices.insert(
-            result.render_scene.indices.end(),
-            batch_indices.begin(),
-            batch_indices.end());
-        if (key.second.has_value()) {
-            if (resources.textures == nullptr) {
+        for (const auto index : walkable_indices) {
+            if (index >
+                std::numeric_limits<std::uint32_t>::max() -
+                    collision_base) {
                 return failure(
-                    SourceSceneBuildErrorCode::invalid_transform,
-                    "Source texture reference has no texture database");
+                    SourceSceneBuildErrorCode::scene_limit_exceeded,
+                    "Walkable source collision index would overflow");
             }
-            const auto* texture =
-                resources.textures->find(key.second.value());
-            if (texture == nullptr) {
-                return failure(
-                    SourceSceneBuildErrorCode::invalid_transform,
-                    "Source texture reference is missing");
-            }
-            const auto mip =
-                texture->first_mip(resources.texture_bytes);
-            if (!mip.has_value()) {
-                return failure(
-                    SourceSceneBuildErrorCode::invalid_transform,
-                    "Source texture data range is invalid");
-            }
-            const auto existing =
-                texture_indices.find(texture->texture_id);
-            if (existing != texture_indices.end()) {
-                batch.texture_index = existing->second;
-            } else {
-                batch.texture_index =
-                    result.render_scene.textures.size();
-                texture_indices.emplace(
-                    texture->texture_id,
-                    batch.texture_index.value());
-                result.render_scene.textures.push_back(
-                    {
-                        texture->texture_id,
-                        texture->width,
-                        texture->height,
-                        render_format(texture->format),
-                        std::vector<std::byte>(
-                            mip.value().begin(),
-                            mip.value().end())
-                    });
-            }
+            result.collision_scene.indices.push_back(
+                collision_base + index);
         }
-        result.render_scene.batches.push_back(batch);
+        result.walkable_render_triangles =
+            walkable_indices.size() / 3U;
+    }
+    if (!player_model.vertices.empty() &&
+        !player_indices_by_material.empty()) {
+        auto finalized_player = finalize_batches(
+            player_model,
+            player_indices_by_material,
+            resources);
+        if (!finalized_player.has_value()) {
+            return failure(
+                finalized_player.error().code,
+                finalized_player.error().message);
+        }
+        result.player_model = std::move(player_model);
     }
     return core::Result<
         SourceSceneBuildResult,

@@ -95,6 +95,13 @@ target_link_libraries(contract-navigation-tests PRIVATE OpenContract::navigation
 contract_add_test(contract-pathfinding-tests navigation/PathfindingTests.cpp)
 target_link_libraries(contract-pathfinding-tests PRIVATE OpenContract::navigation)
 
+contract_add_test(
+    contract-static-collision-world-tests
+    collision/StaticCollisionWorldTests.cpp)
+target_link_libraries(
+    contract-static-collision-world-tests
+    PRIVATE OpenContract::collision)
+
 contract_add_test(contract-mission-tests mission/MissionTests.cpp)
 target_link_libraries(contract-mission-tests PRIVATE OpenContract::mission)
 

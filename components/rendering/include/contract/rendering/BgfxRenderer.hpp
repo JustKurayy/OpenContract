@@ -48,6 +48,9 @@ public:
     [[nodiscard]] core::Result<void, RendererError> upload_scene(
         const scene::RenderScene& scene);
 
+    [[nodiscard]] core::Result<void, RendererError> upload_player_model(
+        const scene::RenderScene& scene);
+
     [[nodiscard]] core::Result<void, RendererError> render(
         const runtime::RuntimeObservation& observation,
         const FreeCameraInput& camera_input,
@@ -75,7 +78,9 @@ private:
     std::uint16_t white_texture_handle_{0xffffU};
     std::uint16_t character_texture_handle_{0xffffU};
     std::vector<std::uint16_t> texture_handles_;
+    std::vector<std::uint16_t> character_texture_handles_;
     std::vector<scene::RenderBatch> batches_;
+    std::vector<scene::RenderBatch> character_batches_;
     std::uint32_t vertex_count_{0};
     std::uint32_t index_count_{0};
     std::uint32_t wireframe_index_count_{0};
@@ -83,6 +88,7 @@ private:
     std::uint32_t textured_batch_count_{0};
     float scene_radius_{1.0F};
     bool following_player_{false};
+    bool source_character_model_{false};
     FreeCamera camera_;
 };
 

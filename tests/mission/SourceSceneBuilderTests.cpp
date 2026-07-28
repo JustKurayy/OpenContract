@@ -119,7 +119,7 @@ int main() {
     contract::formats::ScenePlacement hidden_child;
     hidden_child.primitive_record = 42;
 
-    std::vector<contract::formats::GmsSceneNode> hierarchy(4);
+    std::vector<contract::formats::GmsSceneNode> hierarchy(6);
     hierarchy[0].name = "root";
     hierarchy[1].name = "spawn.synthetic";
     hierarchy[1].parent_index = 0;
@@ -128,12 +128,24 @@ int main() {
     hierarchy[2].visibility_group_root = true;
     hierarchy[3].name = "hidden-child";
     hierarchy[3].parent_index = 2;
+    hierarchy[4].name = "character.synthetic";
+    hierarchy[4].parent_index = 0;
+    hierarchy[5].name = "character-mesh.synthetic";
+    hierarchy[5].parent_index = 4;
+
+    contract::formats::ScenePlacement character_root;
+    character_root.position = {50.0F, 0.0F, 0.0F};
+    contract::formats::ScenePlacement character_child;
+    character_child.primitive_record = 43;
+    character_child.position = {0.0F, 2.0F, 0.0F};
 
     const std::vector nested_placements{
         root,
         child,
         hidden_parent,
-        hidden_child
+        hidden_child,
+        character_root,
+        character_child
     };
     contract::formats::MaterialDatabase materials;
     materials.materials.resize(77);
@@ -175,22 +187,31 @@ int main() {
     };
     auto collision_mesh = mesh;
     collision_mesh.material_id = 2;
+    collision_mesh.indices = {0, 1, 2, 0, 0, 1};
     auto overlay_mesh = mesh;
     overlay_mesh.material_id = 3;
+    auto character_mesh = mesh;
+    character_mesh.model_record = 43;
     const std::vector nested_meshes{
         mesh,
         collision_mesh,
-        overlay_mesh
+        overlay_mesh,
+        character_mesh
     };
     constexpr std::string_view preferred_spawn_nodes[]{
         "spawn.synthetic"};
+    constexpr std::string_view preferred_character_nodes[]{
+        "character.synthetic"};
     const auto nested =
         contract::mission::SourceSceneBuilder::build(
             nested_meshes,
             nested_placements,
             hierarchy,
             resources,
-            {preferred_spawn_nodes});
+            {
+                preferred_spawn_nodes,
+                preferred_character_nodes
+            });
     CONTRACT_EXPECT(nested.has_value());
     if (nested.has_value()) {
         CONTRACT_EXPECT_EQ(
@@ -251,6 +272,38 @@ int main() {
         CONTRACT_EXPECT_EQ(
             nested.value().preferred_spawn->position[2],
             0.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().collision_scene.source_mesh_count,
+            std::size_t{1});
+        CONTRACT_EXPECT_EQ(
+            nested.value().collision_scene.vertices.size(),
+            std::size_t{6});
+        CONTRACT_EXPECT_EQ(
+            nested.value().collision_scene.indices.size(),
+            std::size_t{6});
+        CONTRACT_EXPECT_EQ(
+            nested.value().walkable_render_triangles,
+            std::size_t{1});
+        CONTRACT_EXPECT(
+            nested.value().player_model.has_value());
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->source_mesh_count,
+            std::size_t{1});
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->vertices.size(),
+            std::size_t{3});
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->indices.size(),
+            std::size_t{3});
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->vertices[0].x,
+            1.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->vertices[0].y,
+            2.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().render_scene.source_mesh_count,
+            std::size_t{1});
     }
 
     return contract::test::finish();

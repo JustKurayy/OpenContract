@@ -1,6 +1,7 @@
 #pragma once
 
 #include <contract/core/Result.hpp>
+#include <contract/scene/CollisionScene.hpp>
 #include <contract/scene/RenderScene.hpp>
 #include <contract/scene/Scene.hpp>
 
@@ -42,6 +43,8 @@ struct SourceMissionLoadResult {
     std::string mission_id;
     std::filesystem::path archive_path;
     scene::RenderScene render_scene;
+    scene::CollisionScene collision_scene;
+    std::optional<scene::RenderScene> player_model;
     std::size_t primitive_records{0};
     std::size_t rejected_models{0};
     std::size_t rejected_objects{0};
@@ -54,6 +57,7 @@ struct SourceMissionLoadResult {
     std::size_t missing_placements{0};
     std::size_t visibility_group_count{0};
     std::size_t collision_meshes{0};
+    std::size_t walkable_render_triangles{0};
     std::size_t overlay_meshes{0};
     std::size_t texture_count{0};
     std::size_t render_batch_count{0};

@@ -609,6 +609,167 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
     return core::Result<void, RendererError>::success();
 }
 
+core::Result<void, RendererError> BgfxRenderer::upload_player_model(
+    const scene::RenderScene& scene) {
+    if (!initialized_) {
+        return renderer_failure(
+            RendererErrorCode::not_initialized,
+            "The renderer is not initialized");
+    }
+    if (scene.vertices.empty() ||
+        scene.indices.empty() ||
+        scene.vertices.size() >
+            std::numeric_limits<std::uint32_t>::max() ||
+        scene.indices.size() >
+            std::numeric_limits<std::uint32_t>::max()) {
+        return renderer_failure(
+            RendererErrorCode::invalid_scene,
+            "Player model must contain addressable vertices and indices");
+    }
+    for (const auto& vertex : scene.vertices) {
+        if (!std::isfinite(vertex.x) ||
+            !std::isfinite(vertex.y) ||
+            !std::isfinite(vertex.z)) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Player model contains a non-finite vertex");
+        }
+    }
+    for (const auto index : scene.indices) {
+        if (index >= scene.vertices.size()) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Player model contains an out-of-range index");
+        }
+    }
+    for (const auto& batch : scene.batches) {
+        if (batch.first_index > scene.indices.size() ||
+            batch.index_count >
+                scene.indices.size() - batch.first_index ||
+            (batch.texture_index.has_value() &&
+             batch.texture_index.value() >= scene.textures.size()) ||
+            !std::isfinite(batch.opacity) ||
+            !std::isfinite(batch.alpha_reference) ||
+            batch.opacity < 0.0F ||
+            batch.opacity > 1.0F ||
+            batch.alpha_reference < 0.0F ||
+            batch.alpha_reference > 1.0F) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Player model contains an invalid draw batch");
+        }
+    }
+    for (const auto& texture : scene.textures) {
+        const auto expected = expected_texture_size(texture);
+        if (texture.width == 0U ||
+            texture.height == 0U ||
+            !expected.has_value() ||
+            expected.value() != texture.data.size() ||
+            texture.data.size() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            return renderer_failure(
+                RendererErrorCode::invalid_scene,
+                "Player model contains invalid texture data");
+        }
+    }
+
+    const auto converted_vertices = gpu_vertices(scene.vertices);
+    const auto vertex_bytes =
+        converted_vertices.size() * sizeof(GpuVertex);
+    const auto index_bytes =
+        scene.indices.size() * sizeof(std::uint32_t);
+    if (vertex_bytes > std::numeric_limits<std::uint32_t>::max() ||
+        index_bytes > std::numeric_limits<std::uint32_t>::max()) {
+        return renderer_failure(
+            RendererErrorCode::invalid_scene,
+            "Player model buffer size exceeds bgfx limits");
+    }
+    const auto vertices = bgfx::createVertexBuffer(
+        bgfx::copy(
+            converted_vertices.data(),
+            static_cast<std::uint32_t>(vertex_bytes)),
+        gpu_vertex_layout());
+    const auto indices = bgfx::createIndexBuffer(
+        bgfx::copy(
+            scene.indices.data(),
+            static_cast<std::uint32_t>(index_bytes)),
+        BGFX_BUFFER_INDEX32);
+    if (!bgfx::isValid(vertices) ||
+        !bgfx::isValid(indices)) {
+        if (bgfx::isValid(vertices)) {
+            bgfx::destroy(vertices);
+        }
+        if (bgfx::isValid(indices)) {
+            bgfx::destroy(indices);
+        }
+        return renderer_failure(
+            RendererErrorCode::resource_creation_failed,
+            "Could not create player model geometry buffers");
+    }
+
+    std::vector<std::uint16_t> new_texture_handles;
+    new_texture_handles.reserve(scene.textures.size());
+    for (const auto& texture : scene.textures) {
+        const auto handle = bgfx::createTexture2D(
+            texture.width,
+            texture.height,
+            false,
+            1,
+            texture_format(texture.format),
+            BGFX_SAMPLER_MIN_ANISOTROPIC |
+                BGFX_SAMPLER_MAG_ANISOTROPIC,
+            bgfx::copy(
+                texture.data.data(),
+                static_cast<std::uint32_t>(texture.data.size())));
+        if (!bgfx::isValid(handle)) {
+            for (const auto created : new_texture_handles) {
+                bgfx::destroy(texture_handle(created));
+            }
+            bgfx::destroy(vertices);
+            bgfx::destroy(indices);
+            return renderer_failure(
+                RendererErrorCode::resource_creation_failed,
+                "Could not create a player model texture");
+        }
+        new_texture_handles.push_back(handle.idx);
+    }
+
+    if (character_vertex_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            vertex_buffer_handle(character_vertex_buffer_handle_));
+    }
+    if (character_index_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            index_buffer_handle(character_index_buffer_handle_));
+    }
+    if (character_texture_handle_ != 0xffffU) {
+        bgfx::destroy(
+            texture_handle(character_texture_handle_));
+    }
+    for (const auto handle : character_texture_handles_) {
+        bgfx::destroy(texture_handle(handle));
+    }
+    character_vertex_buffer_handle_ = vertices.idx;
+    character_index_buffer_handle_ = indices.idx;
+    character_texture_handle_ = 0xffffU;
+    character_texture_handles_ =
+        std::move(new_texture_handles);
+    character_batches_ = scene.batches;
+    if (character_batches_.empty()) {
+        character_batches_.push_back(
+            {
+                0,
+                static_cast<std::uint32_t>(scene.indices.size()),
+                0,
+                std::nullopt
+            });
+    }
+    character_index_count_ =
+        static_cast<std::uint32_t>(scene.indices.size());
+    source_character_model_ = true;
+    return core::Result<void, RendererError>::success();
+}
+
 core::Result<void, RendererError> BgfxRenderer::render(
     const runtime::RuntimeObservation& observation,
     const FreeCameraInput& camera_input,
@@ -741,33 +902,90 @@ core::Result<void, RendererError> BgfxRenderer::render(
         if (player != nullptr &&
             character_vertex_buffer_handle_ != 0xffffU &&
             character_index_buffer_handle_ != 0xffffU &&
-            character_texture_handle_ != 0xffffU) {
+            (source_character_model_ ||
+             character_texture_handle_ != 0xffffU)) {
             const auto transform = model_transform(player->transform);
-            bgfx::setTransform(transform.data());
-            bgfx::setVertexBuffer(
-                0,
-                vertex_buffer_handle(
-                    character_vertex_buffer_handle_));
-            bgfx::setIndexBuffer(
-                index_buffer_handle(
-                    character_index_buffer_handle_),
-                0,
-                character_index_count_);
-            bgfx::setTexture(
-                0,
-                uniform_handle(sampler_handle_),
-                texture_handle(character_texture_handle_));
-            const float material[4]{1.0F, 0.0F, 0.0F, 0.0F};
-            bgfx::setUniform(
-                uniform_handle(material_uniform_handle_),
-                material);
-            bgfx::setState(
+            const auto base_state =
                 BGFX_STATE_WRITE_RGB |
                 BGFX_STATE_WRITE_A |
                 BGFX_STATE_WRITE_Z |
                 BGFX_STATE_DEPTH_TEST_LESS |
-                BGFX_STATE_MSAA);
-            bgfx::submit(0, program_handle(program_handle_));
+                BGFX_STATE_MSAA;
+            if (source_character_model_) {
+                for (const auto& batch : character_batches_) {
+                    auto batch_state = base_state;
+                    if (batch.blend_mode ==
+                        scene::RenderBlendMode::alpha) {
+                        batch_state |= BGFX_STATE_BLEND_ALPHA;
+                    } else if (
+                        batch.blend_mode ==
+                        scene::RenderBlendMode::additive) {
+                        batch_state |= BGFX_STATE_BLEND_ADD;
+                    }
+                    if (batch.cull_mode ==
+                        scene::RenderCullMode::one_sided) {
+                        batch_state |= BGFX_STATE_CULL_CW;
+                    }
+                    const auto texture =
+                        batch.texture_index.has_value()
+                            ? character_texture_handles_[
+                                  batch.texture_index.value()]
+                            : white_texture_handle_;
+                    bgfx::setTransform(transform.data());
+                    bgfx::setVertexBuffer(
+                        0,
+                        vertex_buffer_handle(
+                            character_vertex_buffer_handle_));
+                    bgfx::setIndexBuffer(
+                        index_buffer_handle(
+                            character_index_buffer_handle_),
+                        batch.first_index,
+                        batch.index_count);
+                    bgfx::setTexture(
+                        0,
+                        uniform_handle(sampler_handle_),
+                        texture_handle(texture));
+                    const float material[4]{
+                        batch.opacity,
+                        batch.alpha_reference,
+                        0.0F,
+                        0.0F
+                    };
+                    bgfx::setUniform(
+                        uniform_handle(material_uniform_handle_),
+                        material);
+                    bgfx::setState(batch_state);
+                    bgfx::submit(
+                        0,
+                        program_handle(program_handle_));
+                }
+            } else {
+                bgfx::setTransform(transform.data());
+                bgfx::setVertexBuffer(
+                    0,
+                    vertex_buffer_handle(
+                        character_vertex_buffer_handle_));
+                bgfx::setIndexBuffer(
+                    index_buffer_handle(
+                        character_index_buffer_handle_),
+                    0,
+                    character_index_count_);
+                bgfx::setTexture(
+                    0,
+                    uniform_handle(sampler_handle_),
+                    texture_handle(character_texture_handle_));
+                const float material[4]{
+                    1.0F,
+                    0.0F,
+                    0.0F,
+                    0.0F
+                };
+                bgfx::setUniform(
+                    uniform_handle(material_uniform_handle_),
+                    material);
+                bgfx::setState(base_state);
+                bgfx::submit(0, program_handle(program_handle_));
+            }
         }
     }
     bgfx::touch(0);
@@ -906,6 +1124,9 @@ void BgfxRenderer::shutdown() noexcept {
     if (character_texture_handle_ != 0xffffU) {
         bgfx::destroy(texture_handle(character_texture_handle_));
     }
+    for (const auto handle : character_texture_handles_) {
+        bgfx::destroy(texture_handle(handle));
+    }
     for (const auto handle : texture_handles_) {
         bgfx::destroy(texture_handle(handle));
     }
@@ -925,7 +1146,9 @@ void BgfxRenderer::shutdown() noexcept {
     white_texture_handle_ = 0xffffU;
     character_texture_handle_ = 0xffffU;
     texture_handles_.clear();
+    character_texture_handles_.clear();
     batches_.clear();
+    character_batches_.clear();
     vertex_count_ = 0;
     index_count_ = 0;
     wireframe_index_count_ = 0;
@@ -933,6 +1156,7 @@ void BgfxRenderer::shutdown() noexcept {
     textured_batch_count_ = 0;
     scene_radius_ = 1.0F;
     following_player_ = false;
+    source_character_model_ = false;
     camera_ = FreeCamera{};
 }
 

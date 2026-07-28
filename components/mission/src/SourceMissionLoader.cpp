@@ -269,14 +269,21 @@ ReadOnlySourceMissionLoader::load(
         &textures.value(),
         texture_bytes.value()
     };
-    constexpr std::array<std::string_view, 1> preferred_spawn_nodes{
+    constexpr std::array<std::string_view, 1>
+        preferred_spawn_nodes{
         "Pos_Hero"};
+    constexpr std::array<std::string_view, 1>
+        preferred_character_nodes{
+        "Hero"};
     auto placed_scene = SourceSceneBuilder::build(
         decoded.value().meshes,
         placements.value().placements,
         hierarchy.value().nodes,
         resources,
-        {preferred_spawn_nodes});
+        {
+            preferred_spawn_nodes,
+            preferred_character_nodes
+        });
     if (!placed_scene.has_value()) {
         return failure(
             placed_scene.error().code ==
@@ -291,30 +298,48 @@ ReadOnlySourceMissionLoader::load(
         placed_scene.value().render_scene.textures.size();
     const auto batch_count =
         placed_scene.value().render_scene.batches.size();
+    SourceMissionLoadResult result;
+    result.mission_id = identifier;
+    result.archive_path = archive_path;
+    result.render_scene =
+        std::move(placed_scene.value().render_scene);
+    result.collision_scene =
+        std::move(placed_scene.value().collision_scene);
+    result.player_model =
+        std::move(placed_scene.value().player_model);
+    result.primitive_records = container.value().records().size();
+    result.rejected_models = decoded.value().rejected_models;
+    result.rejected_objects = decoded.value().rejected_objects;
+    result.declared_scene_objects =
+        placements.value().declared_objects;
+    result.decoded_placements =
+        placements.value().placements.size();
+    result.active_placements =
+        placed_scene.value().active_placements;
+    result.inactive_placements =
+        placed_scene.value().inactive_placements;
+    result.inherited_inactive_placements =
+        placed_scene.value().inherited_inactive_placements;
+    result.invisible_placements =
+        placed_scene.value().invisible_placements;
+    result.missing_placements =
+        placed_scene.value().missing_placements;
+    result.visibility_group_count =
+        placed_scene.value().visibility_group_count;
+    result.collision_meshes =
+        placed_scene.value().collision_meshes;
+    result.walkable_render_triangles =
+        placed_scene.value().walkable_render_triangles;
+    result.overlay_meshes =
+        placed_scene.value().overlay_meshes;
+    result.texture_count = texture_count;
+    result.render_batch_count = batch_count;
+    result.preferred_spawn =
+        placed_scene.value().preferred_spawn;
     return core::Result<
         SourceMissionLoadResult,
         SourceMissionLoadError>::success(
-        {
-            identifier,
-            archive_path,
-            std::move(placed_scene.value().render_scene),
-            container.value().records().size(),
-            decoded.value().rejected_models,
-            decoded.value().rejected_objects,
-            placements.value().declared_objects,
-            placements.value().placements.size(),
-            placed_scene.value().active_placements,
-            placed_scene.value().inactive_placements,
-            placed_scene.value().inherited_inactive_placements,
-            placed_scene.value().invisible_placements,
-            placed_scene.value().missing_placements,
-            placed_scene.value().visibility_group_count,
-            placed_scene.value().collision_meshes,
-            placed_scene.value().overlay_meshes,
-            texture_count,
-            batch_count,
-            placed_scene.value().preferred_spawn
-        });
+        std::move(result));
 }
 
 }
