@@ -43,6 +43,7 @@ if(CONTRACT_BUILD_TOOLS)
     add_subdirectory(tools/format_inspector)
     add_subdirectory(tools/mod_validator)
     add_subdirectory(apps/inspect)
+    add_subdirectory(apps/archive_inspect)
     add_subdirectory(apps/mod_validate)
 endif()
 

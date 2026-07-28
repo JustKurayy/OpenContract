@@ -1,5 +1,6 @@
 #include "TestSupport.hpp"
 
+#include <contract/tools/ArchiveInspector.hpp>
 #include <contract/tools/Inspector.hpp>
 
 #include <contract/core/Result.hpp>
@@ -79,6 +80,26 @@ int main() {
         missing_value_errors);
     CONTRACT_EXPECT(!missing_value.has_value());
     CONTRACT_EXPECT(!missing_value_errors.str().empty());
+
+    std::ostringstream archive_parse_errors;
+    const auto archive_options =
+        contract::tools::parse_archive_inspector_options(
+            {"--archive", "C:/Synthetic Path/scene.zip", "--json"},
+            archive_parse_errors);
+    CONTRACT_EXPECT(archive_options.has_value());
+    CONTRACT_EXPECT(archive_options->json);
+    CONTRACT_EXPECT_EQ(
+        archive_options->archive_path.value(),
+        std::filesystem::path("C:/Synthetic Path/scene.zip"));
+    CONTRACT_EXPECT(archive_parse_errors.str().empty());
+
+    std::ostringstream missing_archive_errors;
+    const auto missing_archive =
+        contract::tools::parse_archive_inspector_options(
+            {"--json"},
+            missing_archive_errors);
+    CONTRACT_EXPECT(!missing_archive.has_value());
+    CONTRACT_EXPECT(!missing_archive_errors.str().empty());
 
     SyntheticFilesystem filesystem;
     filesystem.entries = {

@@ -1,5 +1,20 @@
 include(FetchContent)
 
+find_package(ZLIB QUIET)
+if(TARGET ZLIB::ZLIB)
+    set(CONTRACT_ZLIB_TARGET ZLIB::ZLIB)
+else()
+    set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        zlib
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(zlib)
+    set(CONTRACT_ZLIB_TARGET zlibstatic)
+endif()
+
 find_package(nlohmann_json 3.12.0 CONFIG QUIET)
 if(NOT nlohmann_json_FOUND)
     FetchContent_Declare(

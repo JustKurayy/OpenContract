@@ -1,4 +1,5 @@
 add_library(contract-format-inspector
+    src/ArchiveInspector.cpp
     src/Inspector.cpp)
 add_library(OpenContract::format-inspector ALIAS contract-format-inspector)
 

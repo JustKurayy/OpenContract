@@ -29,6 +29,13 @@ target_link_libraries(contract-source-binary-reader-tests PRIVATE OpenContract::
 contract_add_test(contract-formats-tests formats/FormatProbeTests.cpp)
 target_link_libraries(contract-formats-tests PRIVATE OpenContract::formats)
 
+contract_add_test(contract-zip-archive-tests formats/ZipArchiveTests.cpp)
+target_link_libraries(
+    contract-zip-archive-tests
+    PRIVATE
+        OpenContract::formats
+        ${CONTRACT_ZLIB_TARGET})
+
 contract_add_test(contract-assets-tests assets/AssetTests.cpp)
 target_link_libraries(contract-assets-tests PRIVATE OpenContract::assets)
 
