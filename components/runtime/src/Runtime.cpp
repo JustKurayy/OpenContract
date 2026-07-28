@@ -1,14 +1,19 @@
 #include <contract/runtime/Runtime.hpp>
 
 #include <contract/modding/PackageSet.hpp>
+#include <contract/runtime/ExplorationObjectiveSystem.hpp>
+#include <contract/runtime/PlayerController.hpp>
 #include <contract/runtime/RuntimeSession.hpp>
 #include <contract/runtime/RuntimeWorld.hpp>
 
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <memory>
 #include <ostream>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace contract::runtime {
 namespace {
@@ -17,6 +22,9 @@ constexpr auto initial_simulation_step =
     std::chrono::nanoseconds{16'666'667};
 constexpr std::size_t initial_catch_up_limit = 4;
 constexpr std::size_t initial_pending_command_limit = 1024;
+constexpr std::string_view source_player_id = "player.local";
+constexpr std::string_view source_objective_id = "objective.explore";
+constexpr float source_exploration_distance = 750.0F;
 
 }
 
@@ -272,12 +280,26 @@ int run_runtime(
         }
         session = std::move(created_session.value());
     } else if (source_mission.has_value()) {
+        const auto spawn = source_mission->preferred_spawn.value_or(
+            scene::Transform{});
+        const scene::EntityDefinition player{
+            scene::EntityId(std::string(source_player_id)),
+            spawn,
+            {
+                scene::ComponentReference{
+                    std::string(player_component_type),
+                    {}}
+            }};
+        const mission::MissionObjective objective{
+            mission::ObjectiveId(std::string(source_objective_id)),
+            {},
+            {player.id}};
         RuntimeWorld world(
             mission::MissionId(source_mission->mission_id),
             scene::MapId("source." + source_mission->mission_id),
             std::nullopt,
-            {},
-            {});
+            {{player, true}},
+            {{objective, ObjectiveProgress::pending}});
         auto created_session = RuntimeSession::create(
             std::move(world),
             initial_simulation_step,
@@ -304,7 +326,21 @@ int run_runtime(
         ? package_set->packages.size()
         : std::size_t{0};
     if (session.has_value() && context.runner != nullptr) {
-        auto host_result = RuntimeHost::create(std::move(*session), {});
+        std::vector<std::unique_ptr<RuntimeSystem>> systems;
+        if (source_mission.has_value()) {
+            const auto spawn = source_mission->preferred_spawn.value_or(
+                scene::Transform{});
+            systems.push_back(
+                std::make_unique<ExplorationObjectiveSystem>(
+                    scene::EntityId(std::string(source_player_id)),
+                    mission::ObjectiveId(
+                        std::string(source_objective_id)),
+                    spawn.position,
+                    source_exploration_distance));
+        }
+        auto host_result = RuntimeHost::create(
+            std::move(*session),
+            std::move(systems));
         if (!host_result.has_value()) {
             context.diagnostics.emit(
                 {
@@ -381,6 +417,18 @@ int run_runtime(
                    << " materialless) from "
                    << source_mission->archive_path.string()
                    << '\n';
+            if (source_mission->preferred_spawn.has_value()) {
+                const auto& position =
+                    source_mission->preferred_spawn->position;
+                output << "[runtime.source-mission] Player spawn "
+                       << position[0] << ' '
+                       << position[1] << ' '
+                       << position[2]
+                       << " from source scene marker\n";
+            } else {
+                output << "[runtime.source-mission] Player spawn "
+                       << "0 0 0 from compatibility fallback\n";
+            }
         }
 
         const auto run_result = context.runner->run(
@@ -389,7 +437,12 @@ int run_runtime(
                 options.maximum_frames,
                 source_mission.has_value()
                     ? &source_mission->render_scene
-                    : nullptr
+                    : nullptr,
+                source_mission.has_value()
+                    ? std::optional<scene::EntityId>{
+                          scene::EntityId(
+                              std::string(source_player_id))}
+                    : std::nullopt
             });
         if (!run_result.has_value()) {
             context.diagnostics.emit(

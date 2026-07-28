@@ -43,5 +43,26 @@ int main() {
     camera.update(look, 1.0F);
     CONTRACT_EXPECT(camera.pitch() < 1.5708F);
 
+    contract::rendering::FreeCamera follow;
+    follow.frame_subject({5.0F, 90.0F, 10.0F}, 500.0F);
+    const auto followed_target = follow.target();
+    CONTRACT_EXPECT(near(followed_target.x, 5.0F));
+    CONTRACT_EXPECT(near(followed_target.y, 90.0F));
+    CONTRACT_EXPECT(near(followed_target.z, 10.0F));
+
+    contract::rendering::FreeCameraInput orbit;
+    orbit.yaw = 1.0F;
+    const auto before_orbit = follow.position();
+    follow.orbit_subject(
+        {15.0F, 90.0F, 20.0F},
+        orbit,
+        0.5F);
+    const auto after_orbit = follow.position();
+    const auto orbit_target = follow.target();
+    CONTRACT_EXPECT(!near(before_orbit.x, after_orbit.x));
+    CONTRACT_EXPECT(near(orbit_target.x, 15.0F));
+    CONTRACT_EXPECT(near(orbit_target.y, 90.0F));
+    CONTRACT_EXPECT(near(orbit_target.z, 20.0F));
+
     return contract::test::finish();
 }

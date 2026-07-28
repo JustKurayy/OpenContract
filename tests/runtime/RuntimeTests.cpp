@@ -94,6 +94,7 @@ public:
         const contract::runtime::RuntimeRunnerOptions& options) override {
         ++calls;
         maximum_frames = options.maximum_frames;
+        controlled_entity = options.controlled_entity;
         render_vertex_count = options.render_scene == nullptr
             ? 0
             : options.render_scene->vertices.size();
@@ -128,6 +129,7 @@ public:
     std::size_t calls{0};
     bool fail{false};
     std::optional<std::uint64_t> maximum_frames;
+    std::optional<contract::scene::EntityId> controlled_entity;
     std::size_t render_vertex_count{0};
     contract::runtime::RuntimeObservation initial_observation;
     contract::runtime::RuntimeObservation final_observation;
@@ -152,22 +154,20 @@ public:
             {0.0F, 1.0F, 0.0F}};
         scene.indices = {0, 1, 2};
         scene.source_mesh_count = 1;
+        contract::mission::SourceMissionLoadResult result;
+        result.mission_id = std::string(mission_id);
+        result.archive_path = game_path / "synthetic.zip";
+        result.render_scene = std::move(scene);
+        result.primitive_records = 9;
+        result.declared_scene_objects = 1;
+        result.decoded_placements = 1;
+        result.active_placements = 1;
+        result.preferred_spawn = contract::scene::Transform{
+            {100.0F, 200.0F, 300.0F}};
         return contract::core::Result<
             contract::mission::SourceMissionLoadResult,
             contract::mission::SourceMissionLoadError>::success(
-            {
-                std::string(mission_id),
-                game_path / "synthetic.zip",
-                std::move(scene),
-                9,
-                0,
-                0,
-                1,
-                1,
-                1,
-                0,
-                0
-            });
+            std::move(result));
     }
 
     mutable std::size_t calls{0};
@@ -370,6 +370,25 @@ int main() {
     CONTRACT_EXPECT_EQ(source_loader.calls, std::size_t{1});
     CONTRACT_EXPECT_EQ(source_loader.selected_mission, std::string("M00"));
     CONTRACT_EXPECT_EQ(runner.render_vertex_count, std::size_t{3});
+    CONTRACT_EXPECT(runner.controlled_entity.has_value());
+    CONTRACT_EXPECT_EQ(
+        runner.controlled_entity->value(),
+        std::string("player.local"));
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.entities.size(),
+        std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.objectives.size(),
+        std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.entities[0].transform.position[0],
+        100.0F);
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.entities[0].transform.position[1],
+        200.0F);
+    CONTRACT_EXPECT_EQ(
+        runner.initial_observation.entities[0].transform.position[2],
+        300.0F);
     CONTRACT_EXPECT(
         source_output.str().find("Loaded 1 meshes") != std::string::npos);
     CONTRACT_EXPECT(

@@ -148,10 +148,24 @@ contract_add_test(contract-runtime-host-tests runtime/RuntimeHostTests.cpp)
 target_link_libraries(contract-runtime-host-tests PRIVATE OpenContract::runtime-support)
 
 contract_add_test(
+    contract-player-controller-tests
+    runtime/PlayerControllerTests.cpp)
+target_link_libraries(
+    contract-player-controller-tests
+    PRIVATE OpenContract::runtime-support)
+
+contract_add_test(
     contract-bgfx-renderer-tests
     rendering/BgfxRendererTests.cpp)
 target_link_libraries(
     contract-bgfx-renderer-tests
+    PRIVATE OpenContract::rendering-bgfx)
+
+contract_add_test(
+    contract-procedural-character-tests
+    rendering/ProceduralCharacterTests.cpp)
+target_link_libraries(
+    contract-procedural-character-tests
     PRIVATE OpenContract::rendering-bgfx)
 
 contract_add_test(

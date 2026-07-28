@@ -39,6 +39,47 @@ void FreeCamera::frame_scene(
     movement_speed_ = safe_radius * 0.25F;
 }
 
+void FreeCamera::frame_subject(
+    CameraPoint subject,
+    float distance) noexcept {
+    const auto safe_distance =
+        std::isfinite(distance) ? std::max(distance, 1.0F) : 1.0F;
+    yaw_ = 0.0F;
+    pitch_ = -0.25F;
+    focus_distance_ = safe_distance;
+    movement_speed_ = safe_distance * 0.25F;
+    const auto forward = forward_vector();
+    position_ = {
+        subject.x - forward.x * focus_distance_,
+        subject.y - forward.y * focus_distance_,
+        subject.z - forward.z * focus_distance_
+    };
+}
+
+void FreeCamera::orbit_subject(
+    CameraPoint subject,
+    const FreeCameraInput& input,
+    float elapsed_seconds) noexcept {
+    if (std::isfinite(elapsed_seconds) &&
+        elapsed_seconds > 0.0F) {
+        const auto step = std::min(elapsed_seconds, 0.25F);
+        yaw_ += std::clamp(input.yaw, -1.0F, 1.0F) *
+            kLookSpeed * step;
+        pitch_ = std::clamp(
+            pitch_ +
+                std::clamp(input.pitch, -1.0F, 1.0F) *
+                    kLookSpeed * step,
+            -kMaximumPitch,
+            kMaximumPitch);
+    }
+    const auto forward = forward_vector();
+    position_ = {
+        subject.x - forward.x * focus_distance_,
+        subject.y - forward.y * focus_distance_,
+        subject.z - forward.z * focus_distance_
+    };
+}
+
 void FreeCamera::update(
     const FreeCameraInput& input,
     float elapsed_seconds) noexcept {

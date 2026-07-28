@@ -2,9 +2,11 @@
 
 #include <contract/core/Result.hpp>
 #include <contract/scene/RenderScene.hpp>
+#include <contract/scene/Scene.hpp>
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -55,6 +57,7 @@ struct SourceMissionLoadResult {
     std::size_t overlay_meshes{0};
     std::size_t texture_count{0};
     std::size_t render_batch_count{0};
+    std::optional<scene::Transform> preferred_spawn;
 };
 
 class ISourceMissionLoader {

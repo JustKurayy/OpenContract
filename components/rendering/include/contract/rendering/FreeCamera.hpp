@@ -23,6 +23,15 @@ public:
         CameraPoint center,
         float radius) noexcept;
 
+    void frame_subject(
+        CameraPoint subject,
+        float distance) noexcept;
+
+    void orbit_subject(
+        CameraPoint subject,
+        const FreeCameraInput& input,
+        float elapsed_seconds) noexcept;
+
     void update(
         const FreeCameraInput& input,
         float elapsed_seconds) noexcept;

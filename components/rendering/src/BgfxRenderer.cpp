@@ -1,6 +1,8 @@
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/ProceduralCharacter.hpp>
 #include <contract/rendering/SceneFraming.hpp>
 #include <contract/rendering/WireframeIndexBuilder.hpp>
+#include <contract/runtime/PlayerController.hpp>
 
 #include <bgfx/bgfx.h>
 #include <bx/math.h>
@@ -9,6 +11,7 @@
 #include "vs_contract_texture.sc.bin.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -26,6 +29,86 @@ struct GpuVertex {
     float u;
     float v;
 };
+
+bgfx::VertexLayout gpu_vertex_layout() {
+    bgfx::VertexLayout layout;
+    layout.begin()
+        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+        .end();
+    return layout;
+}
+
+std::vector<GpuVertex> gpu_vertices(
+    const std::vector<scene::RenderVertex>& vertices) {
+    std::vector<GpuVertex> converted;
+    converted.reserve(vertices.size());
+    for (const auto& vertex : vertices) {
+        converted.push_back(
+            {
+                vertex.x,
+                vertex.y,
+                vertex.z,
+                vertex.u,
+                vertex.v
+            });
+    }
+    return converted;
+}
+
+const runtime::RuntimeEntityObservation* find_player(
+    const runtime::RuntimeObservation& observation) {
+    for (const auto& entity : observation.entities) {
+        if (!entity.enabled) {
+            continue;
+        }
+        const auto component = std::find_if(
+            entity.components.begin(),
+            entity.components.end(),
+            [](const scene::ComponentReference& reference) {
+                return reference.type == runtime::player_component_type;
+            });
+        if (component != entity.components.end()) {
+            return &entity;
+        }
+    }
+    return nullptr;
+}
+
+std::array<float, 16> model_transform(
+    const scene::Transform& transform) {
+    const auto x = transform.rotation[0];
+    const auto y = transform.rotation[1];
+    const auto z = transform.rotation[2];
+    const auto w = transform.rotation[3];
+    const auto xx = x * x;
+    const auto yy = y * y;
+    const auto zz = z * z;
+    const auto xy = x * y;
+    const auto xz = x * z;
+    const auto yz = y * z;
+    const auto wx = w * x;
+    const auto wy = w * y;
+    const auto wz = w * z;
+    return {
+        (1.0F - 2.0F * (yy + zz)) * transform.scale[0],
+        (2.0F * (xy + wz)) * transform.scale[0],
+        (2.0F * (xz - wy)) * transform.scale[0],
+        0.0F,
+        (2.0F * (xy - wz)) * transform.scale[1],
+        (1.0F - 2.0F * (xx + zz)) * transform.scale[1],
+        (2.0F * (yz + wx)) * transform.scale[1],
+        0.0F,
+        (2.0F * (xz + wy)) * transform.scale[2],
+        (2.0F * (yz - wx)) * transform.scale[2],
+        (1.0F - 2.0F * (xx + yy)) * transform.scale[2],
+        0.0F,
+        transform.position[0],
+        transform.position[1],
+        transform.position[2],
+        1.0F
+    };
+}
 
 core::Result<void, RendererError> renderer_failure(
     RendererErrorCode code,
@@ -226,6 +309,59 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
     sampler_handle_ = sampler.idx;
     material_uniform_handle_ = material_uniform.idx;
     white_texture_handle_ = white_texture.idx;
+
+    const auto character = create_procedural_character();
+    const auto character_vertices = gpu_vertices(character.vertices);
+    const auto character_vertex_buffer = bgfx::createVertexBuffer(
+        bgfx::copy(
+            character_vertices.data(),
+            static_cast<std::uint32_t>(
+                character_vertices.size() * sizeof(GpuVertex))),
+        gpu_vertex_layout());
+    const auto character_index_buffer = bgfx::createIndexBuffer(
+        bgfx::copy(
+            character.indices.data(),
+            static_cast<std::uint32_t>(
+                character.indices.size() * sizeof(std::uint32_t))),
+        BGFX_BUFFER_INDEX32);
+    constexpr std::array<std::uint8_t, 4> character_pixel{
+        255U,
+        80U,
+        24U,
+        255U
+    };
+    const auto character_texture = bgfx::createTexture2D(
+        1,
+        1,
+        false,
+        1,
+        bgfx::TextureFormat::RGBA8,
+        BGFX_SAMPLER_NONE,
+        bgfx::copy(
+            character_pixel.data(),
+            static_cast<std::uint32_t>(character_pixel.size())));
+    if (!bgfx::isValid(character_vertex_buffer) ||
+        !bgfx::isValid(character_index_buffer) ||
+        !bgfx::isValid(character_texture)) {
+        if (bgfx::isValid(character_vertex_buffer)) {
+            bgfx::destroy(character_vertex_buffer);
+        }
+        if (bgfx::isValid(character_index_buffer)) {
+            bgfx::destroy(character_index_buffer);
+        }
+        if (bgfx::isValid(character_texture)) {
+            bgfx::destroy(character_texture);
+        }
+        shutdown();
+        return renderer_failure(
+            RendererErrorCode::resource_creation_failed,
+            "Could not create procedural character resources");
+    }
+    character_vertex_buffer_handle_ = character_vertex_buffer.idx;
+    character_index_buffer_handle_ = character_index_buffer.idx;
+    character_texture_handle_ = character_texture.idx;
+    character_index_count_ =
+        static_cast<std::uint32_t>(character.indices.size());
     return core::Result<void, RendererError>::success();
 }
 
@@ -346,21 +482,10 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
         initial_frame->center,
         initial_frame->radius);
 
-    std::vector<GpuVertex> gpu_vertices;
-    gpu_vertices.reserve(scene.vertices.size());
-    for (const auto& vertex : scene.vertices) {
-        gpu_vertices.push_back(
-            {
-                vertex.x,
-                vertex.y,
-                vertex.z,
-                vertex.u,
-                vertex.v
-            });
-    }
+    const auto converted_vertices = gpu_vertices(scene.vertices);
 
     const auto vertex_bytes =
-        gpu_vertices.size() * sizeof(GpuVertex);
+        converted_vertices.size() * sizeof(GpuVertex);
     const auto index_bytes =
         scene.indices.size() * sizeof(std::uint32_t);
     auto wireframe_indices =
@@ -381,16 +506,11 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
             "Render scene buffer size exceeds bgfx limits");
     }
 
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-        .end();
     const auto vertices = bgfx::createVertexBuffer(
         bgfx::copy(
-            gpu_vertices.data(),
+            converted_vertices.data(),
             static_cast<std::uint32_t>(vertex_bytes)),
-        layout);
+        gpu_vertex_layout());
     const auto indices = bgfx::createIndexBuffer(
         bgfx::copy(
             scene.indices.data(),
@@ -485,6 +605,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
     index_count_ = static_cast<std::uint32_t>(scene.indices.size());
     wireframe_index_count_ = static_cast<std::uint32_t>(
         wireframe_indices.value().size());
+    following_player_ = false;
     return core::Result<void, RendererError>::success();
 }
 
@@ -508,7 +629,25 @@ core::Result<void, RendererError> BgfxRenderer::render(
     if (vertex_buffer_handle_ != 0xffffU &&
         index_buffer_handle_ != 0xffffU &&
         program_handle_ != 0xffffU) {
-        camera_.update(camera_input, elapsed_seconds);
+        const auto* player = find_player(observation);
+        if (player != nullptr) {
+            const CameraPoint subject{
+                player->transform.position[0],
+                player->transform.position[1] + 90.0F,
+                player->transform.position[2]
+            };
+            if (!following_player_) {
+                camera_.frame_subject(subject, 500.0F);
+                following_player_ = true;
+            }
+            camera_.orbit_subject(
+                subject,
+                camera_input,
+                elapsed_seconds);
+        } else {
+            following_player_ = false;
+            camera_.update(camera_input, elapsed_seconds);
+        }
         const auto camera_position = camera_.position();
         const auto camera_target = camera_.target();
         const bx::Vec3 target{
@@ -599,6 +738,37 @@ core::Result<void, RendererError> BgfxRenderer::render(
                 bgfx::submit(0, program_handle(program_handle_));
             }
         }
+        if (player != nullptr &&
+            character_vertex_buffer_handle_ != 0xffffU &&
+            character_index_buffer_handle_ != 0xffffU &&
+            character_texture_handle_ != 0xffffU) {
+            const auto transform = model_transform(player->transform);
+            bgfx::setTransform(transform.data());
+            bgfx::setVertexBuffer(
+                0,
+                vertex_buffer_handle(
+                    character_vertex_buffer_handle_));
+            bgfx::setIndexBuffer(
+                index_buffer_handle(
+                    character_index_buffer_handle_),
+                0,
+                character_index_count_);
+            bgfx::setTexture(
+                0,
+                uniform_handle(sampler_handle_),
+                texture_handle(character_texture_handle_));
+            const float material[4]{1.0F, 0.0F, 0.0F, 0.0F};
+            bgfx::setUniform(
+                uniform_handle(material_uniform_handle_),
+                material);
+            bgfx::setState(
+                BGFX_STATE_WRITE_RGB |
+                BGFX_STATE_WRITE_A |
+                BGFX_STATE_WRITE_Z |
+                BGFX_STATE_DEPTH_TEST_LESS |
+                BGFX_STATE_MSAA);
+            bgfx::submit(0, program_handle(program_handle_));
+        }
     }
     bgfx::touch(0);
     bgfx::dbgTextClear();
@@ -620,6 +790,17 @@ core::Result<void, RendererError> BgfxRenderer::render(
         0x0e,
         "Map: %s",
         observation.map.value().c_str());
+    const auto* displayed_player = find_player(observation);
+    if (displayed_player != nullptr) {
+        bgfx::dbgTextPrintf(
+            3,
+            6,
+            0x0b,
+            "Player: %.1f %.1f %.1f",
+            displayed_player->transform.position[0],
+            displayed_player->transform.position[1],
+            displayed_player->transform.position[2]);
+    }
     bgfx::dbgTextPrintf(
         3,
         7,
@@ -641,6 +822,14 @@ core::Result<void, RendererError> BgfxRenderer::render(
         "Objectives: %llu",
         static_cast<unsigned long long>(
             observation.objectives.size()));
+    bgfx::dbgTextPrintf(
+        3,
+        13,
+        observation.all_objectives_complete ? 0x0a : 0x0e,
+        "Mission state: %s",
+        observation.all_objectives_complete
+            ? "objective complete"
+            : "active");
     bgfx::dbgTextPrintf(
         3,
         10,
@@ -667,7 +856,9 @@ core::Result<void, RendererError> BgfxRenderer::render(
         3,
         14,
         0x08,
-        "WASD move, Q/E down/up, arrows look, Shift boosts.");
+        displayed_player != nullptr
+            ? "WASD move character, arrows orbit, Shift sprints."
+            : "WASD move, Q/E down/up, arrows look, Shift boosts.");
     bgfx::dbgTextPrintf(
         3,
         15,
@@ -692,6 +883,14 @@ void BgfxRenderer::shutdown() noexcept {
         bgfx::destroy(
             index_buffer_handle(wireframe_index_buffer_handle_));
     }
+    if (character_vertex_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            vertex_buffer_handle(character_vertex_buffer_handle_));
+    }
+    if (character_index_buffer_handle_ != 0xffffU) {
+        bgfx::destroy(
+            index_buffer_handle(character_index_buffer_handle_));
+    }
     if (program_handle_ != 0xffffU) {
         bgfx::destroy(program_handle(program_handle_));
     }
@@ -703,6 +902,9 @@ void BgfxRenderer::shutdown() noexcept {
     }
     if (white_texture_handle_ != 0xffffU) {
         bgfx::destroy(texture_handle(white_texture_handle_));
+    }
+    if (character_texture_handle_ != 0xffffU) {
+        bgfx::destroy(texture_handle(character_texture_handle_));
     }
     for (const auto handle : texture_handles_) {
         bgfx::destroy(texture_handle(handle));
@@ -716,16 +918,21 @@ void BgfxRenderer::shutdown() noexcept {
     vertex_buffer_handle_ = 0xffffU;
     index_buffer_handle_ = 0xffffU;
     wireframe_index_buffer_handle_ = 0xffffU;
+    character_vertex_buffer_handle_ = 0xffffU;
+    character_index_buffer_handle_ = 0xffffU;
     sampler_handle_ = 0xffffU;
     material_uniform_handle_ = 0xffffU;
     white_texture_handle_ = 0xffffU;
+    character_texture_handle_ = 0xffffU;
     texture_handles_.clear();
     batches_.clear();
     vertex_count_ = 0;
     index_count_ = 0;
     wireframe_index_count_ = 0;
+    character_index_count_ = 0;
     textured_batch_count_ = 0;
     scene_radius_ = 1.0F;
+    following_player_ = false;
     camera_ = FreeCamera{};
 }
 

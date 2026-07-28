@@ -1,4 +1,6 @@
 add_library(contract-runtime-support
+    src/ExplorationObjectiveSystem.cpp
+    src/PlayerController.cpp
     src/Runtime.cpp
     src/RuntimeCommand.cpp
     src/RuntimeEventJournal.cpp

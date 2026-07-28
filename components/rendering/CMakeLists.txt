@@ -33,6 +33,7 @@ add_library(contract-rendering-bgfx
     ${contract_fragment_shader}
     src/BgfxRenderer.cpp
     src/FreeCamera.cpp
+    src/ProceduralCharacter.cpp
     src/SceneFraming.cpp
     src/WireframeIndexBuilder.cpp)
 add_library(

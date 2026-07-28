@@ -1,5 +1,6 @@
 #include <contract/mission/SourceSceneBuilder.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -57,6 +59,15 @@ bool valid_placement(
         }
     }
     return true;
+}
+
+bool is_preferred_spawn(
+    std::string_view node_name,
+    const SourceSceneBuildHints& hints) {
+    return std::find(
+               hints.preferred_spawn_nodes.begin(),
+               hints.preferred_spawn_nodes.end(),
+               node_name) != hints.preferred_spawn_nodes.end();
 }
 
 formats::ScenePlacement compose(
@@ -166,6 +177,7 @@ SourceSceneBuilder::build(
     std::span<const formats::ScenePlacement> placements,
     std::span<const formats::GmsSceneNode> hierarchy,
     SourceSceneBuildResources resources,
+    SourceSceneBuildHints hints,
     SourceSceneBuildLimits limits) {
     std::unordered_map<
         std::uint32_t,
@@ -245,6 +257,13 @@ SourceSceneBuilder::build(
         if (local.invisible) {
             ++result.invisible_placements;
             continue;
+        }
+        if (!result.preferred_spawn.has_value() &&
+            !hierarchy.empty() &&
+            is_preferred_spawn(hierarchy[index].name, hints)) {
+            scene::Transform spawn;
+            spawn.position = placement.position;
+            result.preferred_spawn = spawn;
         }
         if (placement.primitive_record == 0) {
             ++result.empty_placements;

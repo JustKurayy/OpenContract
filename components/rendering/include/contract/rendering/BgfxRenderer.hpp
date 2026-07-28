@@ -68,16 +68,21 @@ private:
     std::uint16_t vertex_buffer_handle_{0xffffU};
     std::uint16_t index_buffer_handle_{0xffffU};
     std::uint16_t wireframe_index_buffer_handle_{0xffffU};
+    std::uint16_t character_vertex_buffer_handle_{0xffffU};
+    std::uint16_t character_index_buffer_handle_{0xffffU};
     std::uint16_t sampler_handle_{0xffffU};
     std::uint16_t material_uniform_handle_{0xffffU};
     std::uint16_t white_texture_handle_{0xffffU};
+    std::uint16_t character_texture_handle_{0xffffU};
     std::vector<std::uint16_t> texture_handles_;
     std::vector<scene::RenderBatch> batches_;
     std::uint32_t vertex_count_{0};
     std::uint32_t index_count_{0};
     std::uint32_t wireframe_index_count_{0};
+    std::uint32_t character_index_count_{0};
     std::uint32_t textured_batch_count_{0};
     float scene_radius_{1.0F};
+    bool following_player_{false};
     FreeCamera camera_;
 };
 

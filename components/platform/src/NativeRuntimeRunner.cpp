@@ -1,13 +1,17 @@
 #include <contract/platform/NativeRuntimeRunner.hpp>
 
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/runtime/PlayerController.hpp>
 
-#include <chrono>
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -158,6 +162,19 @@ rendering::FreeCameraInput camera_input(
     return input;
 }
 
+runtime::PlayerInput player_input(
+    const WindowState& state) {
+    runtime::PlayerInput input;
+    input.forward =
+        (key_down(state, 'W') ? 1.0F : 0.0F) -
+        (key_down(state, 'S') ? 1.0F : 0.0F);
+    input.right =
+        (key_down(state, 'D') ? 1.0F : 0.0F) -
+        (key_down(state, 'A') ? 1.0F : 0.0F);
+    input.sprint = key_down(state, VK_SHIFT);
+    return input;
+}
+
 core::Result<HWND, runtime::RuntimeRunnerError> create_runtime_window(
     WindowState& state,
     NativeWindowVisibility visibility) {
@@ -271,6 +288,10 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             return platform_failure(uploaded.error().message);
         }
     }
+    std::optional<runtime::PlayerController> player_controller;
+    if (options.controlled_entity.has_value()) {
+        player_controller.emplace(*options.controlled_entity);
+    }
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();
 
@@ -310,7 +331,27 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 current_time - previous_time);
         previous_time = current_time;
-        auto frame = host.advance(elapsed, {});
+        std::vector<runtime::RuntimeCommand> commands;
+        if (player_controller.has_value()) {
+            const auto movement = player_controller->update(
+                state.observation,
+                player_input(state),
+                (std::max)(
+                    std::chrono::duration<float>(elapsed).count(),
+                    0.000001F));
+            if (!movement.has_value()) {
+                renderer.shutdown();
+                if (IsWindow(window) != FALSE) {
+                    static_cast<void>(DestroyWindow(window));
+                }
+                return platform_failure(movement.error().message);
+            }
+            if (movement.value().has_value()) {
+                commands.push_back(
+                    std::move(movement.value().value()));
+            }
+        }
+        auto frame = host.advance(elapsed, commands);
         if (!frame.has_value()) {
             renderer.shutdown();
             if (IsWindow(window) != FALSE) {

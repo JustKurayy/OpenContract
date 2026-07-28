@@ -7,10 +7,13 @@
 #include <contract/formats/ScenePlacementDecoder.hpp>
 #include <contract/formats/TextureDatabaseDecoder.hpp>
 #include <contract/scene/RenderScene.hpp>
+#include <contract/scene/Scene.hpp>
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace contract::mission {
 
@@ -38,8 +41,13 @@ struct SourceSceneBuildResources {
     std::span<const std::byte> texture_bytes;
 };
 
+struct SourceSceneBuildHints {
+    std::span<const std::string_view> preferred_spawn_nodes;
+};
+
 struct SourceSceneBuildResult {
     scene::RenderScene render_scene;
+    std::optional<scene::Transform> preferred_spawn;
     std::size_t active_placements{0};
     std::size_t inactive_placements{0};
     std::size_t inherited_inactive_placements{0};
@@ -61,6 +69,7 @@ public:
         std::span<const formats::ScenePlacement> placements,
         std::span<const formats::GmsSceneNode> hierarchy = {},
         SourceSceneBuildResources resources = {},
+        SourceSceneBuildHints hints = {},
         SourceSceneBuildLimits limits = {});
 };
 

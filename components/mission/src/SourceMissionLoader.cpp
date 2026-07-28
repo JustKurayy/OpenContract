@@ -10,7 +10,9 @@
 #include <contract/formats/ZipArchive.hpp>
 #include <contract/mission/SourceSceneBuilder.hpp>
 
+#include <array>
 #include <cctype>
+#include <string_view>
 #include <utility>
 
 namespace contract::mission {
@@ -267,11 +269,14 @@ ReadOnlySourceMissionLoader::load(
         &textures.value(),
         texture_bytes.value()
     };
+    constexpr std::array<std::string_view, 1> preferred_spawn_nodes{
+        "Pos_Hero"};
     auto placed_scene = SourceSceneBuilder::build(
         decoded.value().meshes,
         placements.value().placements,
         hierarchy.value().nodes,
-        resources);
+        resources,
+        {preferred_spawn_nodes});
     if (!placed_scene.has_value()) {
         return failure(
             placed_scene.error().code ==
@@ -307,7 +312,8 @@ ReadOnlySourceMissionLoader::load(
             placed_scene.value().collision_meshes,
             placed_scene.value().overlay_meshes,
             texture_count,
-            batch_count
+            batch_count,
+            placed_scene.value().preferred_spawn
         });
 }
 

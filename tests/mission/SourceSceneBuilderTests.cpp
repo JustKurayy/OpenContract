@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 int main() {
@@ -120,7 +121,7 @@ int main() {
 
     std::vector<contract::formats::GmsSceneNode> hierarchy(4);
     hierarchy[0].name = "root";
-    hierarchy[1].name = "child";
+    hierarchy[1].name = "spawn.synthetic";
     hierarchy[1].parent_index = 0;
     hierarchy[2].name = "hidden-group";
     hierarchy[2].parent_index = 0;
@@ -181,12 +182,15 @@ int main() {
         collision_mesh,
         overlay_mesh
     };
+    constexpr std::string_view preferred_spawn_nodes[]{
+        "spawn.synthetic"};
     const auto nested =
         contract::mission::SourceSceneBuilder::build(
             nested_meshes,
             nested_placements,
             hierarchy,
-            resources);
+            resources,
+            {preferred_spawn_nodes});
     CONTRACT_EXPECT(nested.has_value());
     if (nested.has_value()) {
         CONTRACT_EXPECT_EQ(
@@ -237,6 +241,16 @@ int main() {
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.textures[0].data.size(),
             std::size_t{8});
+        CONTRACT_EXPECT(nested.value().preferred_spawn.has_value());
+        CONTRACT_EXPECT_EQ(
+            nested.value().preferred_spawn->position[0],
+            10.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().preferred_spawn->position[1],
+            5.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().preferred_spawn->position[2],
+            0.0F);
     }
 
     return contract::test::finish();
