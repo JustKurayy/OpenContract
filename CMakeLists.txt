@@ -31,6 +31,7 @@ add_subdirectory(components/scene)
 add_subdirectory(components/mission)
 add_subdirectory(components/modding)
 add_subdirectory(components/runtime)
+add_subdirectory(components/platform)
 add_subdirectory(components/launcher)
 add_subdirectory(components/scripting)
 

@@ -89,6 +89,15 @@ target_link_libraries(contract-runtime-observation-tests PRIVATE OpenContract::r
 contract_add_test(contract-runtime-host-tests runtime/RuntimeHostTests.cpp)
 target_link_libraries(contract-runtime-host-tests PRIVATE OpenContract::runtime-support)
 
+if(WIN32)
+    contract_add_test(
+        contract-native-runtime-runner-tests
+        runtime/NativeRuntimeRunnerTests.cpp)
+    target_link_libraries(
+        contract-native-runtime-runner-tests
+        PRIVATE OpenContract::platform-runtime)
+endif()
+
 contract_add_test(contract-launcher-tests launcher/LauncherTests.cpp)
 target_link_libraries(contract-launcher-tests PRIVATE OpenContract::launcher-support)
 
@@ -105,6 +114,14 @@ if(CONTRACT_BUILD_TOOLS)
             $<TARGET_FILE:contract-mod-validate>
             --manifest
             "${CMAKE_CURRENT_SOURCE_DIR}/synthetic_test_data/minimal.contract.json"
+            --json)
+
+    add_test(
+        NAME contract-boot-manifest-cli
+        COMMAND
+            $<TARGET_FILE:contract-mod-validate>
+            --manifest
+            "${CMAKE_CURRENT_SOURCE_DIR}/synthetic_test_data/boot.contract.json"
             --json)
 endif()
 

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "package": {
+    "id": "package.boot.synthetic",
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "metadata": {
+      "name": "Synthetic Boot Package",
+      "author": "OpenContract Tests",
+      "description": "Original synthetic content for runtime boot verification"
+    }
+  },
+  "dependencies": [],
+  "assets": [],
+  "navigation_graphs": [],
+  "maps": [
+    {
+      "id": "map.boot.synthetic",
+      "navigation": null,
+      "entities": [
+        {
+          "id": "entity.spawn.synthetic",
+          "transform": {
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0]
+          },
+          "components": []
+        },
+        {
+          "id": "entity.objective.synthetic",
+          "transform": {
+            "position": [4.0, 0.0, 2.0],
+            "rotation": [0.0, 0.0, 0.0, 1.0],
+            "scale": [1.0, 1.0, 1.0]
+          },
+          "components": []
+        }
+      ]
+    }
+  ],
+  "missions": [
+    {
+      "id": "mission.boot.synthetic",
+      "map": "map.boot.synthetic",
+      "objectives": [
+        {
+          "id": "objective.boot.synthetic",
+          "targets": ["entity.objective.synthetic"],
+          "spawns": ["entity.spawn.synthetic"]
+        }
+      ]
+    }
+  ]
+}
