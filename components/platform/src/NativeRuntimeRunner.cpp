@@ -345,6 +345,21 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
         }
     }
     float player_camera_yaw = 0.0F;
+    if (options.controlled_entity.has_value()) {
+        const auto player = std::find_if(
+            state.observation.entities.begin(),
+            state.observation.entities.end(),
+            [&options](
+                const runtime::RuntimeEntityObservation& entity) {
+                return entity.id == options.controlled_entity.value() &&
+                    entity.enabled;
+            });
+        if (player != state.observation.entities.end()) {
+            player_camera_yaw =
+                rendering::camera_yaw_from_rotation(
+                    player->transform.rotation);
+        }
+    }
 
     while (!state.closed) {
         MSG message{};

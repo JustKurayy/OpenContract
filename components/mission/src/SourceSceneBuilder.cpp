@@ -68,6 +68,127 @@ bool valid_placement(
     return true;
 }
 
+std::optional<scene::Transform> scene_transform(
+    const formats::ScenePlacement& placement) {
+    constexpr float minimum_axis_length = 0.000001F;
+    constexpr float orthogonality_tolerance = 0.001F;
+    scene::Transform transform;
+    transform.position = placement.position;
+
+    auto basis = placement.matrix;
+    for (std::size_t column = 0; column < 3; ++column) {
+        const auto start = column * 3U;
+        const auto length = std::sqrt(
+            basis[start] * basis[start] +
+            basis[start + 1U] * basis[start + 1U] +
+            basis[start + 2U] * basis[start + 2U]);
+        if (!std::isfinite(length) ||
+            length <= minimum_axis_length) {
+            return std::nullopt;
+        }
+        transform.scale[column] = length;
+        basis[start] /= length;
+        basis[start + 1U] /= length;
+        basis[start + 2U] /= length;
+    }
+
+    const auto axis_dot =
+        [&basis](std::size_t left, std::size_t right) {
+            const auto left_start = left * 3U;
+            const auto right_start = right * 3U;
+            return basis[left_start] * basis[right_start] +
+                basis[left_start + 1U] * basis[right_start + 1U] +
+                basis[left_start + 2U] * basis[right_start + 2U];
+        };
+    if (std::abs(axis_dot(0, 1)) > orthogonality_tolerance ||
+        std::abs(axis_dot(0, 2)) > orthogonality_tolerance ||
+        std::abs(axis_dot(1, 2)) > orthogonality_tolerance) {
+        return std::nullopt;
+    }
+
+    auto determinant =
+        basis[0] *
+            (basis[4] * basis[8] -
+             basis[7] * basis[5]) -
+        basis[3] *
+            (basis[1] * basis[8] -
+             basis[7] * basis[2]) +
+        basis[6] *
+            (basis[1] * basis[5] -
+             basis[4] * basis[2]);
+    if (!std::isfinite(determinant) ||
+        std::abs(std::abs(determinant) - 1.0F) >
+            orthogonality_tolerance) {
+        return std::nullopt;
+    }
+    if (determinant < 0.0F) {
+        transform.scale[2] = -transform.scale[2];
+        basis[6] = -basis[6];
+        basis[7] = -basis[7];
+        basis[8] = -basis[8];
+    }
+
+    const auto m00 = basis[0];
+    const auto m01 = basis[3];
+    const auto m02 = basis[6];
+    const auto m10 = basis[1];
+    const auto m11 = basis[4];
+    const auto m12 = basis[7];
+    const auto m20 = basis[2];
+    const auto m21 = basis[5];
+    const auto m22 = basis[8];
+    const auto trace = m00 + m11 + m22;
+    if (trace > 0.0F) {
+        const auto scale = std::sqrt(trace + 1.0F) * 2.0F;
+        transform.rotation = {
+            (m21 - m12) / scale,
+            (m02 - m20) / scale,
+            (m10 - m01) / scale,
+            0.25F * scale
+        };
+    } else if (m00 > m11 && m00 > m22) {
+        const auto scale =
+            std::sqrt(1.0F + m00 - m11 - m22) * 2.0F;
+        transform.rotation = {
+            0.25F * scale,
+            (m01 + m10) / scale,
+            (m02 + m20) / scale,
+            (m21 - m12) / scale
+        };
+    } else if (m11 > m22) {
+        const auto scale =
+            std::sqrt(1.0F + m11 - m00 - m22) * 2.0F;
+        transform.rotation = {
+            (m01 + m10) / scale,
+            0.25F * scale,
+            (m12 + m21) / scale,
+            (m02 - m20) / scale
+        };
+    } else {
+        const auto scale =
+            std::sqrt(1.0F + m22 - m00 - m11) * 2.0F;
+        transform.rotation = {
+            (m02 + m20) / scale,
+            (m12 + m21) / scale,
+            0.25F * scale,
+            (m10 - m01) / scale
+        };
+    }
+    const auto quaternion_length = std::sqrt(
+        transform.rotation[0] * transform.rotation[0] +
+        transform.rotation[1] * transform.rotation[1] +
+        transform.rotation[2] * transform.rotation[2] +
+        transform.rotation[3] * transform.rotation[3]);
+    if (!std::isfinite(quaternion_length) ||
+        quaternion_length <= minimum_axis_length) {
+        return std::nullopt;
+    }
+    for (auto& value : transform.rotation) {
+        value /= quaternion_length;
+    }
+    return transform;
+}
+
 bool matches_hint(
     std::string_view node_name,
     std::span<const std::string_view> names) {
@@ -425,9 +546,13 @@ SourceSceneBuilder::build(
             matches_hint(
                 hierarchy[index].name,
                 hints.preferred_spawn_nodes)) {
-            scene::Transform spawn;
-            spawn.position = placement.position;
-            result.preferred_spawn = spawn;
+            const auto spawn = scene_transform(placement);
+            if (!spawn.has_value()) {
+                return failure(
+                    SourceSceneBuildErrorCode::invalid_transform,
+                    "Source spawn marker transform is not a rigid basis");
+            }
+            result.preferred_spawn = spawn.value();
         }
         if (placement.primitive_record == 0) {
             ++result.empty_placements;

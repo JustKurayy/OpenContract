@@ -50,8 +50,17 @@ int main() {
     camera.update(look, 1.0F);
     CONTRACT_EXPECT(camera.pitch() < 1.5708F);
 
+    const auto source_yaw =
+        contract::rendering::camera_yaw_from_rotation(
+            {0.0F, 0.70710677F, 0.0F, 0.70710677F});
+    CONTRACT_EXPECT(near(source_yaw, 1.5707963F));
+
     contract::rendering::FreeCamera follow;
-    follow.frame_subject({5.0F, 90.0F, 10.0F}, 500.0F);
+    follow.frame_subject(
+        {5.0F, 90.0F, 10.0F},
+        500.0F,
+        source_yaw);
+    CONTRACT_EXPECT(near(follow.yaw(), source_yaw));
     const auto followed_target = follow.target();
     CONTRACT_EXPECT(near(followed_target.x, 5.0F));
     CONTRACT_EXPECT(near(followed_target.y, 90.0F));

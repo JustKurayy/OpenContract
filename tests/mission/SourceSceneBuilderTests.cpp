@@ -7,6 +7,7 @@
 #include <contract/formats/TextureDatabaseDecoder.hpp>
 #include <contract/mission/SourceSceneBuilder.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -112,6 +113,11 @@ int main() {
     root.position = {10.0F, 0.0F, 0.0F};
     contract::formats::ScenePlacement child;
     child.primitive_record = 42;
+    child.matrix = {
+        0.0F, 0.0F, -1.0F,
+        0.0F, 1.0F, 0.0F,
+        -1.0F, 0.0F, 0.0F
+    };
     child.position = {0.0F, 5.0F, 0.0F};
     contract::formats::ScenePlacement hidden_parent;
     hidden_parent.primitive_record = 0;
@@ -235,10 +241,13 @@ int main() {
     if (nested.has_value()) {
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.vertices[0].x,
-            11.0F);
+            10.0F);
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.vertices[0].y,
             5.0F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().render_scene.vertices[0].z,
+            -1.0F);
         CONTRACT_EXPECT_EQ(
             nested.value().inherited_inactive_placements,
             std::size_t{1});
@@ -300,6 +309,17 @@ int main() {
         CONTRACT_EXPECT_EQ(
             nested.value().preferred_spawn->position[2],
             0.0F);
+        CONTRACT_EXPECT(
+            std::abs(
+                nested.value().preferred_spawn->rotation[1] -
+                0.70710677F) < 0.0001F);
+        CONTRACT_EXPECT(
+            std::abs(
+                nested.value().preferred_spawn->rotation[3] -
+                0.70710677F) < 0.0001F);
+        CONTRACT_EXPECT_EQ(
+            nested.value().preferred_spawn->scale[2],
+            -1.0F);
         CONTRACT_EXPECT_EQ(
             nested.value().collision_scene.source_mesh_count,
             std::size_t{1});

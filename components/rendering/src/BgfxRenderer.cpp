@@ -821,7 +821,11 @@ core::Result<void, RendererError> BgfxRenderer::render(
                 player->transform.position[2]
             };
             if (!following_player_) {
-                camera_.frame_subject(subject, 500.0F);
+                camera_.frame_subject(
+                    subject,
+                    500.0F,
+                    camera_yaw_from_rotation(
+                        player->transform.rotation));
                 following_player_ = true;
             }
             camera_.orbit_subject(

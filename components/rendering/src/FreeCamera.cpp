@@ -27,6 +27,28 @@ float advance_camera_yaw(
             kLookSpeed * step;
 }
 
+float camera_yaw_from_rotation(
+    std::array<float, 4> rotation) noexcept {
+    const auto length = std::sqrt(
+        rotation[0] * rotation[0] +
+        rotation[1] * rotation[1] +
+        rotation[2] * rotation[2] +
+        rotation[3] * rotation[3]);
+    if (!std::isfinite(length) || length <= 0.000001F) {
+        return 0.0F;
+    }
+    for (auto& value : rotation) {
+        value /= length;
+    }
+    const auto x = rotation[0];
+    const auto y = rotation[1];
+    const auto z = rotation[2];
+    const auto w = rotation[3];
+    return std::atan2(
+        2.0F * (x * z + w * y),
+        1.0F - 2.0F * (x * x + y * y));
+}
+
 void FreeCamera::frame_scene(
     CameraPoint center,
     float radius) noexcept {
@@ -57,10 +79,11 @@ void FreeCamera::frame_scene(
 
 void FreeCamera::frame_subject(
     CameraPoint subject,
-    float distance) noexcept {
+    float distance,
+    float yaw) noexcept {
     const auto safe_distance =
         std::isfinite(distance) ? std::max(distance, 1.0F) : 1.0F;
-    yaw_ = 0.0F;
+    yaw_ = std::isfinite(yaw) ? yaw : 0.0F;
     pitch_ = -0.25F;
     focus_distance_ = safe_distance;
     movement_speed_ = safe_distance * 0.25F;

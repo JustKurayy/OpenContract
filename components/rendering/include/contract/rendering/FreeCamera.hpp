@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 namespace contract::rendering {
 
 struct CameraPoint {
@@ -22,6 +24,9 @@ struct FreeCameraInput {
     float input,
     float elapsed_seconds) noexcept;
 
+[[nodiscard]] float camera_yaw_from_rotation(
+    std::array<float, 4> rotation) noexcept;
+
 class FreeCamera {
 public:
     void frame_scene(
@@ -30,7 +35,8 @@ public:
 
     void frame_subject(
         CameraPoint subject,
-        float distance) noexcept;
+        float distance,
+        float yaw = 0.0F) noexcept;
 
     void orbit_subject(
         CameraPoint subject,
