@@ -1,4 +1,5 @@
 add_library(contract-formats
+    src/AnimationDatabaseDecoder.cpp
     src/FormatProbe.cpp
     src/GmsSceneDecoder.cpp
     src/MaterialDatabaseDecoder.cpp

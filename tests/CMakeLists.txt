@@ -58,6 +58,13 @@ target_link_libraries(
     PRIVATE OpenContract::formats)
 
 contract_add_test(
+    contract-animation-database-decoder-tests
+    formats/AnimationDatabaseDecoderTests.cpp)
+target_link_libraries(
+    contract-animation-database-decoder-tests
+    PRIVATE OpenContract::formats)
+
+contract_add_test(
     contract-scene-placement-decoder-tests
     formats/ScenePlacementDecoderTests.cpp)
 target_link_libraries(

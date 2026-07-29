@@ -445,6 +445,42 @@ int run_runtime(
                 output << "[runtime.source-mission] No source base "
                        << "player model found; using procedural fallback\n";
             }
+            output << "[runtime.source-mission] Loaded animation catalog "
+                   << "with "
+                   << source_mission->animation_path_count
+                   << " paths, "
+                   << source_mission->animation_database_count
+                   << " database"
+                   << (source_mission->animation_database_count == 1U
+                           ? ""
+                           : "s")
+                   << ", and "
+                   << source_mission->animation_clip_count
+                   << " clips\n";
+            if (source_mission->character_animations.has_value()) {
+                const auto log_clip =
+                    [&output](
+                        const mission::SourceCharacterAnimationClip& clip) {
+                        output << "[runtime.source-mission] "
+                               << clip.role
+                               << " source clip "
+                               << clip.clip_index
+                               << ": "
+                               << clip.sample_count
+                               << " samples at "
+                               << clip.samples_per_second
+                               << " Hz, "
+                               << clip.track_count
+                               << " tracks and "
+                               << clip.encoded_size
+                               << " encoded bytes\n";
+                    };
+                const auto& selected =
+                    source_mission->character_animations.value();
+                log_clip(selected.idle);
+                log_clip(selected.walk);
+                log_clip(selected.sprint);
+            }
             if (source_mission->preferred_spawn.has_value()) {
                 const auto& position =
                     source_mission->preferred_spawn->position;

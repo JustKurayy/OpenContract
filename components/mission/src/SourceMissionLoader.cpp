@@ -1,6 +1,7 @@
 #include <contract/mission/SourceMissionLoader.hpp>
 
 #include <contract/datasource/DataSource.hpp>
+#include <contract/formats/AnimationDatabaseDecoder.hpp>
 #include <contract/formats/GmsSceneDecoder.hpp>
 #include <contract/formats/MaterialDatabaseDecoder.hpp>
 #include <contract/formats/PrimitiveContainer.hpp>
@@ -104,6 +105,21 @@ scene::RenderJointRole source_joint_role(
     return scene::RenderJointRole::unknown;
 }
 
+SourceCharacterAnimationClip source_animation_clip(
+    std::string role,
+    std::string path,
+    const formats::AnimationClipDescriptor& descriptor) {
+    return {
+        std::move(role),
+        std::move(path),
+        descriptor.index,
+        descriptor.sample_count,
+        descriptor.samples_per_second,
+        descriptor.track_count,
+        descriptor.encoded_size
+    };
+}
+
 }
 
 bool is_valid_source_mission_id(std::string_view mission_id) noexcept {
@@ -170,6 +186,8 @@ ReadOnlySourceMissionLoader::load(
         "Scenes/" + identifier + "/" + identifier + "_main.MAT";
     const auto texture_name =
         "Scenes/" + identifier + "/" + identifier + "_main.TEX";
+    const auto animation_name =
+        "Scenes/" + identifier + "/" + identifier + "_main.ANM";
     const auto* primitive_entry = archive.value().find(primitive_name);
     if (primitive_entry == nullptr) {
         return failure(
@@ -212,6 +230,13 @@ ReadOnlySourceMissionLoader::load(
             SourceMissionLoadErrorCode::texture_entry_missing,
             archive_path,
             "Source mission archive does not contain its texture entry");
+    }
+    const auto* animation_entry = archive.value().find(animation_name);
+    if (animation_entry == nullptr) {
+        return failure(
+            SourceMissionLoadErrorCode::animation_entry_missing,
+            archive_path,
+            "Source mission archive does not contain its animation entry");
     }
     auto primitive_bytes = archive.value().read_entry(
         archive_source.value(),
@@ -279,6 +304,17 @@ ReadOnlySourceMissionLoader::load(
             archive_path,
             texture_bytes.error().message);
     }
+    auto animation_bytes = archive.value().read_entry(
+        archive_source.value(),
+        *animation_entry,
+        archive_budget,
+        16U * 1024U * 1024U);
+    if (!animation_bytes.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::archive_invalid,
+            archive_path,
+            animation_bytes.error().message);
+    }
 
     datasource::MemoryDataSource primitive_source(primitive_bytes.value());
     datasource::ReadBudget primitive_budget(
@@ -340,6 +376,65 @@ ReadOnlySourceMissionLoader::load(
             archive_path,
             textures.error().message);
     }
+    datasource::MemoryDataSource animation_source(
+        animation_bytes.value());
+    datasource::ReadBudget animation_budget(
+        2U * 1024U * 1024U,
+        128U * 1024U);
+    auto animations = formats::AnimationDatabaseIndex::read(
+        animation_source,
+        animation_budget);
+    if (!animations.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::animation_decode_failed,
+            archive_path,
+            animations.error().message);
+    }
+    const auto animation_database =
+        "anmcol:animationdatabase#" + identifier + "_Hitman";
+    constexpr std::string_view idle_animation =
+        "/Movement/Ambient/Stand_Relaxed";
+    constexpr std::string_view walk_animation =
+        "/Movement/Walk/Forward";
+    constexpr std::string_view sprint_animation =
+        "/Movement/Run/Forward";
+    const auto idle_clip = animations.value().resolve(
+        animation_database,
+        idle_animation);
+    const auto walk_clip = animations.value().resolve(
+        animation_database,
+        walk_animation);
+    const auto sprint_clip = animations.value().resolve(
+        animation_database,
+        sprint_animation);
+    if (!idle_clip.has_value() ||
+        !walk_clip.has_value() ||
+        !sprint_clip.has_value()) {
+        const auto message = !idle_clip.has_value()
+            ? idle_clip.error().message
+            : !walk_clip.has_value()
+                ? walk_clip.error().message
+                : sprint_clip.error().message;
+        return failure(
+            SourceMissionLoadErrorCode::animation_decode_failed,
+            archive_path,
+            "Source character animation selection failed: " + message);
+    }
+    SourceCharacterAnimations character_animations{
+        animation_database,
+        source_animation_clip(
+            "idle",
+            std::string(idle_animation),
+            idle_clip.value()),
+        source_animation_clip(
+            "walk",
+            std::string(walk_animation),
+            walk_clip.value()),
+        source_animation_clip(
+            "sprint",
+            std::string(sprint_animation),
+            sprint_clip.value())
+    };
     const SourceSceneBuildResources resources{
         &materials.value(),
         &textures.value(),
@@ -484,6 +579,11 @@ ReadOnlySourceMissionLoader::load(
     result.render_batch_count = batch_count;
     result.rig_bone_count = rig_bone_count;
     result.skinned_vertex_count = skinned_vertex_count;
+    result.animation_path_count = animations.value().paths().size();
+    result.animation_database_count =
+        animations.value().databases().size();
+    result.animation_clip_count = animations.value().clips().size();
+    result.character_animations = std::move(character_animations);
     result.preferred_spawn =
         placed_scene.value().preferred_spawn;
     return core::Result<

@@ -189,6 +189,40 @@ public:
         player_model.indices = {0, 1, 2};
         player_model.batches.push_back({0, 3});
         result.player_model = std::move(player_model);
+        result.animation_path_count = 3;
+        result.animation_database_count = 1;
+        result.animation_clip_count = 3;
+        result.character_animations =
+            contract::mission::SourceCharacterAnimations{
+                "anmcol:animationdatabase#synthetic",
+                {
+                    "idle",
+                    "/idle.synthetic",
+                    2,
+                    10,
+                    20,
+                    4,
+                    128
+                },
+                {
+                    "walk",
+                    "/walk.synthetic",
+                    0,
+                    18,
+                    25,
+                    8,
+                    256
+                },
+                {
+                    "sprint",
+                    "/sprint.synthetic",
+                    1,
+                    15,
+                    25,
+                    8,
+                    320
+                }
+            };
         return contract::core::Result<
             contract::mission::SourceMissionLoadResult,
             contract::mission::SourceMissionLoadError>::success(
@@ -426,6 +460,22 @@ int main() {
         source_output.str().find(
             "0 inactive, 0 inherited inactive, 0 invisible, and "
             "0 unsupported placements") !=
+        std::string::npos);
+    CONTRACT_EXPECT(
+        source_output.str().find(
+            "animation catalog with 3 paths, 1 database, and 3 clips") !=
+        std::string::npos);
+    CONTRACT_EXPECT(
+        source_output.str().find(
+            "idle source clip 2: 10 samples at 20 Hz") !=
+        std::string::npos);
+    CONTRACT_EXPECT(
+        source_output.str().find(
+            "walk source clip 0: 18 samples at 25 Hz") !=
+        std::string::npos);
+    CONTRACT_EXPECT(
+        source_output.str().find(
+            "sprint source clip 1: 15 samples at 25 Hz") !=
         std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());

@@ -6,6 +6,7 @@
 #include <contract/scene/Scene.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -23,11 +24,13 @@ enum class SourceMissionLoadErrorCode {
     name_buffer_entry_missing,
     material_entry_missing,
     texture_entry_missing,
+    animation_entry_missing,
     primitive_container_invalid,
     property_decode_failed,
     hierarchy_decode_failed,
     material_decode_failed,
     texture_decode_failed,
+    animation_decode_failed,
     rig_decode_failed,
     scene_decode_failed,
     scene_limit_exceeded
@@ -38,6 +41,23 @@ struct SourceMissionLoadError {
         SourceMissionLoadErrorCode::archive_unavailable};
     std::filesystem::path path;
     std::string message;
+};
+
+struct SourceCharacterAnimationClip {
+    std::string role;
+    std::string path;
+    std::uint32_t clip_index{0};
+    std::uint16_t sample_count{0};
+    std::uint16_t samples_per_second{0};
+    std::uint16_t track_count{0};
+    std::uint32_t encoded_size{0};
+};
+
+struct SourceCharacterAnimations {
+    std::string database;
+    SourceCharacterAnimationClip idle;
+    SourceCharacterAnimationClip walk;
+    SourceCharacterAnimationClip sprint;
 };
 
 struct SourceMissionLoadResult {
@@ -65,6 +85,10 @@ struct SourceMissionLoadResult {
     std::size_t render_batch_count{0};
     std::size_t rig_bone_count{0};
     std::size_t skinned_vertex_count{0};
+    std::size_t animation_path_count{0};
+    std::size_t animation_database_count{0};
+    std::size_t animation_clip_count{0};
+    std::optional<SourceCharacterAnimations> character_animations;
     std::optional<scene::Transform> preferred_spawn;
 };
 
