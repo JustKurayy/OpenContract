@@ -59,6 +59,32 @@ contract::scene::RenderScene rigged_character_scene() {
     return scene;
 }
 
+contract::scene::RenderScene oriented_joint_scene() {
+    contract::scene::RenderScene scene;
+    scene.vertices = {
+        {0.0F, 0.0F, 1.0F, 0.25F, 0.75F}
+    };
+    scene.skinning = {
+        {{{0, 0, 0, 0}}, {{1.0F, 0.0F, 0.0F, 0.0F}}}
+    };
+    scene.skeleton = contract::scene::RenderSkeleton{
+        {
+            {
+                "oriented.synthetic",
+                std::nullopt,
+                contract::scene::RenderJointRole::root,
+                {0.0F, 0.0F, 0.0F},
+                {
+                    0.0F, -1.0F, 0.0F,
+                    1.0F, 0.0F, 0.0F,
+                    0.0F, 0.0F, 1.0F
+                }
+            }
+        }
+    };
+    return scene;
+}
+
 bool differs(
     const contract::scene::RenderVertex& left,
     const contract::scene::RenderVertex& right) {
@@ -193,6 +219,72 @@ int main() {
                 rigged.vertices[index].z);
         }
     }
+
+    contract::rendering::CharacterPose source_bind_pose;
+    source_bind_pose.joint_deltas.resize(
+        rigged.skeleton->joints.size());
+    const auto explicit_bind_pose =
+        contract::rendering::animate_character(
+            rigged.vertices,
+            rigged.skinning,
+            rigged.skeleton.value(),
+            source_bind_pose);
+    CONTRACT_EXPECT(explicit_bind_pose.has_value());
+    if (explicit_bind_pose.has_value()) {
+        for (std::size_t index = 0;
+             index < rigged.vertices.size();
+             ++index) {
+            CONTRACT_EXPECT_EQ(
+                explicit_bind_pose.value()[index].x,
+                rigged.vertices[index].x);
+            CONTRACT_EXPECT_EQ(
+                explicit_bind_pose.value()[index].y,
+                rigged.vertices[index].y);
+            CONTRACT_EXPECT_EQ(
+                explicit_bind_pose.value()[index].z,
+                rigged.vertices[index].z);
+        }
+    }
+
+    const auto oriented = oriented_joint_scene();
+    contract::rendering::CharacterPose oriented_pose;
+    oriented_pose.joint_deltas.resize(1);
+    oriented_pose.joint_deltas[0].rotation = {
+        1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, -1.0F,
+        0.0F, 1.0F, 0.0F
+    };
+    const auto oriented_result =
+        contract::rendering::animate_character(
+            oriented.vertices,
+            oriented.skinning,
+            oriented.skeleton.value(),
+            oriented_pose);
+    CONTRACT_EXPECT(oriented_result.has_value());
+    if (oriented_result.has_value()) {
+        CONTRACT_EXPECT(
+            std::abs(oriented_result.value()[0].x - 1.0F) <
+            0.0001F);
+        CONTRACT_EXPECT(
+            std::abs(oriented_result.value()[0].y) < 0.0001F);
+        CONTRACT_EXPECT(
+            std::abs(oriented_result.value()[0].z) < 0.0001F);
+        CONTRACT_EXPECT_EQ(
+            oriented_result.value()[0].u,
+            oriented.vertices[0].u);
+        CONTRACT_EXPECT_EQ(
+            oriented_result.value()[0].v,
+            oriented.vertices[0].v);
+    }
+
+    contract::rendering::CharacterPose missing_joint_pose;
+    const auto missing_joint_result =
+        contract::rendering::animate_character(
+            oriented.vertices,
+            oriented.skinning,
+            oriented.skeleton.value(),
+            missing_joint_pose);
+    CONTRACT_EXPECT(!missing_joint_result.has_value());
 
     const contract::rendering::CharacterAnimationState walk_state{
         CharacterAnimationSequence::walk,

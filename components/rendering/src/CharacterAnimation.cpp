@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace contract::rendering {
@@ -117,9 +118,7 @@ AffinePose compose(
     return result;
 }
 
-AffinePose rotation_about_x(
-    const std::array<float, 3>& pivot,
-    float angle) {
+AffinePose rotation_about_x(float angle) {
     const auto cosine = std::cos(angle);
     const auto sine = std::sin(angle);
     AffinePose result;
@@ -128,14 +127,72 @@ AffinePose rotation_about_x(
         0.0F, cosine, -sine,
         0.0F, sine, cosine
     };
-    result.translation = {
-        0.0F,
-        pivot[1] - cosine * pivot[1] +
-            sine * pivot[2],
-        pivot[2] - sine * pivot[1] -
-            cosine * pivot[2]
-    };
     return result;
+}
+
+std::optional<AffinePose> inverse(const AffinePose& pose) {
+    const auto& matrix = pose.rotation;
+    const auto determinant =
+        matrix[0] *
+            (matrix[4] * matrix[8] -
+             matrix[5] * matrix[7]) -
+        matrix[1] *
+            (matrix[3] * matrix[8] -
+             matrix[5] * matrix[6]) +
+        matrix[2] *
+            (matrix[3] * matrix[7] -
+             matrix[4] * matrix[6]);
+    if (!std::isfinite(determinant) ||
+        std::abs(determinant) <= 0.00000001F) {
+        return std::nullopt;
+    }
+
+    const auto reciprocal = 1.0F / determinant;
+    AffinePose result;
+    result.rotation = {
+        (matrix[4] * matrix[8] -
+         matrix[5] * matrix[7]) * reciprocal,
+        (matrix[2] * matrix[7] -
+         matrix[1] * matrix[8]) * reciprocal,
+        (matrix[1] * matrix[5] -
+         matrix[2] * matrix[4]) * reciprocal,
+        (matrix[5] * matrix[6] -
+         matrix[3] * matrix[8]) * reciprocal,
+        (matrix[0] * matrix[8] -
+         matrix[2] * matrix[6]) * reciprocal,
+        (matrix[2] * matrix[3] -
+         matrix[0] * matrix[5]) * reciprocal,
+        (matrix[3] * matrix[7] -
+         matrix[4] * matrix[6]) * reciprocal,
+        (matrix[1] * matrix[6] -
+         matrix[0] * matrix[7]) * reciprocal,
+        (matrix[0] * matrix[4] -
+         matrix[1] * matrix[3]) * reciprocal
+    };
+    const auto translated = transform_position(
+        result,
+        {
+            -pose.translation[0],
+            -pose.translation[1],
+            -pose.translation[2]
+        });
+    result.translation = translated;
+    return result;
+}
+
+bool finite_pose(const AffinePose& pose) {
+    return std::all_of(
+               pose.rotation.begin(),
+               pose.rotation.end(),
+               [](float value) {
+                   return std::isfinite(value);
+               }) &&
+           std::all_of(
+               pose.translation.begin(),
+               pose.translation.end(),
+               [](float value) {
+                   return std::isfinite(value);
+               });
 }
 
 float joint_angle(
@@ -348,13 +405,6 @@ animate_character(
     const std::vector<scene::RenderSkinning>& skinning,
     const scene::RenderSkeleton& skeleton,
     const CharacterAnimationState& state) {
-    if (vertices.empty() ||
-        skinning.size() != vertices.size() ||
-        skeleton.joints.empty()) {
-        return value_failure<std::vector<scene::RenderVertex>>(
-            CharacterAnimationErrorCode::invalid_model,
-            "Skeletal character data is empty or misaligned");
-    }
     if (!std::isfinite(state.phase) ||
         state.phase < 0.0F ||
         state.phase >= 1.0F) {
@@ -363,33 +413,99 @@ animate_character(
             "Character animation phase must be in the range [0, 1)");
     }
 
-    std::vector<AffinePose> joint_poses;
-    joint_poses.reserve(skeleton.joints.size());
+    CharacterPose pose;
+    pose.joint_deltas.reserve(skeleton.joints.size());
+    for (const auto& joint : skeleton.joints) {
+        const auto delta = rotation_about_x(
+            joint_angle(joint.role, state));
+        pose.joint_deltas.push_back(
+            {
+                delta.rotation,
+                delta.translation
+            });
+    }
+    return animate_character(
+        vertices,
+        skinning,
+        skeleton,
+        pose);
+}
+
+core::Result<
+    std::vector<scene::RenderVertex>,
+    CharacterAnimationError>
+animate_character(
+    const std::vector<scene::RenderVertex>& vertices,
+    const std::vector<scene::RenderSkinning>& skinning,
+    const scene::RenderSkeleton& skeleton,
+    const CharacterPose& pose) {
+    if (vertices.empty() ||
+        skinning.size() != vertices.size() ||
+        skeleton.joints.empty()) {
+        return value_failure<std::vector<scene::RenderVertex>>(
+            CharacterAnimationErrorCode::invalid_model,
+            "Skeletal character data is empty or misaligned");
+    }
+    if (pose.joint_deltas.size() != skeleton.joints.size()) {
+        return value_failure<std::vector<scene::RenderVertex>>(
+            CharacterAnimationErrorCode::invalid_state,
+            "Character pose must contain one delta per skeleton joint");
+    }
+
+    std::vector<AffinePose> inverse_bind_poses;
+    std::vector<AffinePose> posed_joints;
+    std::vector<AffinePose> skinning_poses;
+    inverse_bind_poses.reserve(skeleton.joints.size());
+    posed_joints.reserve(skeleton.joints.size());
+    skinning_poses.reserve(skeleton.joints.size());
     for (std::size_t index = 0;
          index < skeleton.joints.size();
          ++index) {
         const auto& joint = skeleton.joints[index];
-        if (!std::isfinite(joint.reference_position[0]) ||
-            !std::isfinite(joint.reference_position[1]) ||
-            !std::isfinite(joint.reference_position[2]) ||
+        const auto& delta = pose.joint_deltas[index];
+        const AffinePose bind{
+            joint.reference_basis,
+            joint.reference_position
+        };
+        const AffinePose delta_pose{
+            delta.rotation,
+            delta.translation
+        };
+        if (!finite_pose(bind) ||
+            !finite_pose(delta_pose) ||
             (joint.parent_index.has_value() &&
              joint.parent_index.value() >= index)) {
             return value_failure<std::vector<scene::RenderVertex>>(
                 CharacterAnimationErrorCode::invalid_model,
-                "Character skeleton is non-finite or not topological");
+                "Character skeleton or pose is non-finite or not topological");
         }
-        const auto parent_pose =
-            joint.parent_index.has_value()
-                ? joint_poses[joint.parent_index.value()]
-                : AffinePose{};
-        const auto pivot = transform_position(
-            parent_pose,
-            joint.reference_position);
-        const auto rotation = rotation_about_x(
-            pivot,
-            joint_angle(joint.role, state));
-        joint_poses.push_back(
-            compose(rotation, parent_pose));
+        const auto inverse_bind = inverse(bind);
+        if (!inverse_bind.has_value()) {
+            return value_failure<std::vector<scene::RenderVertex>>(
+                CharacterAnimationErrorCode::invalid_model,
+                "Character reference basis is not invertible");
+        }
+
+        AffinePose posed;
+        if (joint.parent_index.has_value()) {
+            const auto parent = joint.parent_index.value();
+            const auto local_bind = compose(
+                inverse_bind_poses[parent],
+                bind);
+            const auto local_pose = compose(
+                local_bind,
+                delta_pose);
+            posed = compose(
+                posed_joints[parent],
+                local_pose);
+        } else {
+            posed = compose(bind, delta_pose);
+        }
+        inverse_bind_poses.push_back(
+            inverse_bind.value());
+        posed_joints.push_back(posed);
+        skinning_poses.push_back(
+            compose(posed, inverse_bind.value()));
     }
 
     auto posed = vertices;
@@ -420,7 +536,7 @@ animate_character(
                 weight < 0.0F ||
                 weight > 1.0F ||
                 (weight > 0.0F &&
-                 joint >= joint_poses.size())) {
+                 joint >= skinning_poses.size())) {
                 return value_failure<
                     std::vector<scene::RenderVertex>>(
                     CharacterAnimationErrorCode::invalid_model,
@@ -430,7 +546,7 @@ animate_character(
                 continue;
             }
             const auto transformed = transform_position(
-                joint_poses[joint],
+                skinning_poses[joint],
                 {vertex.x, vertex.y, vertex.z});
             for (std::size_t axis = 0; axis < 3; ++axis) {
                 accumulated[axis] +=

@@ -3,6 +3,7 @@
 #include <contract/core/Result.hpp>
 #include <contract/scene/RenderScene.hpp>
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,6 +32,19 @@ struct CharacterAnimationTiming {
     float idle_duration_seconds{2.857142857F};
     float walk_duration_seconds{0.555555556F};
     float sprint_duration_seconds{0.357142857F};
+};
+
+struct CharacterJointDelta {
+    std::array<float, 9> rotation{
+        1.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 1.0F
+    };
+    std::array<float, 3> translation{0.0F, 0.0F, 0.0F};
+};
+
+struct CharacterPose {
+    std::vector<CharacterJointDelta> joint_deltas;
 };
 
 enum class CharacterAnimationErrorCode {
@@ -78,6 +92,15 @@ animate_character(
     const std::vector<scene::RenderSkinning>& skinning,
     const scene::RenderSkeleton& skeleton,
     const CharacterAnimationState& state);
+
+[[nodiscard]] core::Result<
+    std::vector<scene::RenderVertex>,
+    CharacterAnimationError>
+animate_character(
+    const std::vector<scene::RenderVertex>& vertices,
+    const std::vector<scene::RenderSkinning>& skinning,
+    const scene::RenderSkeleton& skeleton,
+    const CharacterPose& pose);
 
 [[nodiscard]] std::string_view character_sequence_name(
     CharacterAnimationSequence sequence) noexcept;
