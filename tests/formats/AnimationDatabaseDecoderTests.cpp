@@ -383,14 +383,18 @@ int main() {
         std::nullopt
     };
     std::vector<std::byte> routed_bytes(64, std::byte{0});
+    routed_bytes[0] = std::byte{0x11};
     routed_bytes[20] = std::byte{2};
     write_u16(routed_bytes, 21, 3);
     write_u16(routed_bytes, 23, 7);
     routed_bytes[25] = std::byte{0xe0};
     routed_bytes[26] = std::byte{0xe3};
+    routed_bytes[27] = std::byte{0x22};
+    routed_bytes[32] = std::byte{0x33};
     routed_bytes[52] = std::byte{1};
     write_u16(routed_bytes, 53, 56);
     routed_bytes[55] = std::byte{0xe6};
+    routed_bytes[56] = std::byte{0x44};
 
     const auto routed =
         contract::formats::decode_animation_track_directories(
@@ -400,14 +404,23 @@ int main() {
     if (routed.has_value()) {
         CONTRACT_EXPECT_EQ(routed.value().size(), std::size_t{2});
         CONTRACT_EXPECT_EQ(
-            routed.value()[0].channel_slot,
-            std::uint8_t{0});
+            routed.value()[0].channel_mask,
+            std::uint8_t{0x01});
         CONTRACT_EXPECT_EQ(
             routed.value()[0].encoded_size,
             std::uint32_t{32});
         CONTRACT_EXPECT_EQ(
             routed.value()[0].payload_offset,
             std::uint32_t{27});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].encoded_value_bytes.size(),
+            std::size_t{25});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].encoded_value_bytes[0],
+            std::byte{0x11});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].encoded_value_bytes[20],
+            std::byte{0x22});
         CONTRACT_EXPECT_EQ(
             routed.value()[0].tracks.size(),
             std::size_t{2});
@@ -418,11 +431,36 @@ int main() {
             routed.value()[0].tracks[1].encoding,
             std::uint8_t{0xe3});
         CONTRACT_EXPECT_EQ(
-            routed.value()[1].channel_slot,
-            std::uint8_t{2});
+            routed.value()[1].channel_mask,
+            std::uint8_t{0x04});
         CONTRACT_EXPECT_EQ(
             routed.value()[1].tracks[0].track_id,
             std::uint16_t{56});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[1].encoded_value_bytes.size(),
+            std::size_t{28});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[1].encoded_value_bytes[0],
+            std::byte{0x33});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[1].encoded_value_bytes[20],
+            std::byte{0x44});
+    }
+
+    auto aliased_descriptor = routed_descriptor;
+    aliased_descriptor.channel_offsets[1] = std::uint32_t{32};
+    const auto aliased =
+        contract::formats::decode_animation_track_directories(
+            routed_bytes,
+            aliased_descriptor);
+    CONTRACT_EXPECT(aliased.has_value());
+    if (aliased.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            aliased.value().size(),
+            std::size_t{2});
+        CONTRACT_EXPECT_EQ(
+            aliased.value()[1].channel_mask,
+            std::uint8_t{0x06});
     }
 
     auto duplicate_track_bytes = routed_bytes;

@@ -1,7 +1,6 @@
 #include <contract/formats/AnimationTrackDirectory.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -20,7 +19,7 @@ constexpr std::size_t kTrackIdSize = 2;
 constexpr std::size_t kEncodingSize = 1;
 
 struct ChannelReference {
-    std::uint8_t slot{0};
+    std::uint8_t mask{0};
     std::uint32_t offset{0};
 };
 
@@ -46,26 +45,45 @@ std::uint16_t read_u16(
 }
 
 bool supported_encoding(
-    std::uint8_t channel_slot,
+    std::uint8_t channel_mask,
     std::uint8_t encoding) {
-    switch (channel_slot) {
-    case 0:
-        return encoding == 0xe0U ||
-            encoding == 0xe2U ||
-            encoding == 0xe3U;
-    case 1:
-        return encoding == 0x84U ||
-            encoding == 0xb5U ||
-            encoding == 0xe6U;
-    case 2:
-        return encoding == 0xe4U ||
-            encoding == 0xe5U ||
-            encoding == 0xe6U;
-    case 3:
-        return encoding == 0x91U;
-    default:
-        return false;
+    for (std::uint8_t slot = 0; slot < 4U; ++slot) {
+        if ((channel_mask &
+             static_cast<std::uint8_t>(1U << slot)) == 0U) {
+            continue;
+        }
+        switch (slot) {
+        case 0:
+            if (encoding == 0xe0U ||
+                encoding == 0xe2U ||
+                encoding == 0xe3U) {
+                return true;
+            }
+            break;
+        case 1:
+            if (encoding == 0x84U ||
+                encoding == 0xb5U ||
+                encoding == 0xe6U) {
+                return true;
+            }
+            break;
+        case 2:
+            if (encoding == 0xe4U ||
+                encoding == 0xe5U ||
+                encoding == 0xe6U) {
+                return true;
+            }
+            break;
+        case 3:
+            if (encoding == 0x91U) {
+                return true;
+            }
+            break;
+        default:
+            break;
+        }
     }
+    return false;
 }
 
 }
@@ -86,7 +104,6 @@ decode_animation_track_directories(
 
     std::vector<ChannelReference> references;
     references.reserve(descriptor.channel_offsets.size());
-    std::unordered_set<std::uint32_t> offsets;
     for (std::size_t slot = 0;
          slot < descriptor.channel_offsets.size();
          ++slot) {
@@ -100,15 +117,22 @@ decode_animation_track_directories(
                 offset.value(),
                 "Animation channel directory offset is out of range");
         }
-        if (!offsets.insert(offset.value()).second) {
-            return failure(
-                AnimationDatabaseDecodeErrorCode::invalid_clip,
-                offset.value(),
-                "Animation channel directory offsets must be unique");
+        const auto existing = std::find_if(
+            references.begin(),
+            references.end(),
+            [offset](const ChannelReference& reference) {
+                return reference.offset == offset.value();
+            });
+        const auto mask =
+            static_cast<std::uint8_t>(1U << slot);
+        if (existing != references.end()) {
+            existing->mask = static_cast<std::uint8_t>(
+                existing->mask | mask);
+            continue;
         }
         references.push_back(
             {
-                static_cast<std::uint8_t>(slot),
+                mask,
                 offset.value()
             });
     }
@@ -183,17 +207,23 @@ decode_animation_track_directories(
         total_tracks += track_count_size;
 
         AnimationChannelDirectory directory;
-        directory.channel_slot = references[index].slot;
+        directory.channel_mask = references[index].mask;
         directory.encoded_offset =
             static_cast<std::uint32_t>(start);
         directory.encoded_size =
             static_cast<std::uint32_t>(end - start);
         directory.payload_offset =
             static_cast<std::uint32_t>(directory_end);
-        std::copy_n(
+        directory.encoded_value_bytes.reserve(
+            kLeadingByteCount + end - directory_end);
+        directory.encoded_value_bytes.insert(
+            directory.encoded_value_bytes.end(),
             encoded_clip.begin() + start,
-            kLeadingByteCount,
-            directory.leading_bytes.begin());
+            encoded_clip.begin() + start + kLeadingByteCount);
+        directory.encoded_value_bytes.insert(
+            directory.encoded_value_bytes.end(),
+            encoded_clip.begin() + directory_end,
+            encoded_clip.begin() + end);
         directory.tracks.reserve(track_count_size);
         std::unordered_set<std::uint16_t> track_ids;
         const auto identifiers =
@@ -215,7 +245,7 @@ decode_animation_track_directories(
             const auto encoding = std::to_integer<std::uint8_t>(
                 encoded_clip[encodings + track]);
             if (!supported_encoding(
-                    directory.channel_slot,
+                    directory.channel_mask,
                     encoding)) {
                 return failure(
                     AnimationDatabaseDecodeErrorCode::

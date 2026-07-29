@@ -138,11 +138,12 @@ source_animation_clip(
     }
     std::vector<SourceCharacterAnimationChannel> channels;
     channels.reserve(directories.value().size());
-    for (const auto& directory : directories.value()) {
+    for (auto& directory : directories.value()) {
         channels.push_back(
             {
-                directory.channel_slot,
-                directory.tracks.size()
+                directory.channel_mask,
+                directory.tracks.size(),
+                std::move(directory.encoded_value_bytes)
             });
     }
     return core::Result<

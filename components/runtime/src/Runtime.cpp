@@ -462,9 +462,12 @@ int run_runtime(
                     [&output](
                         const mission::SourceCharacterAnimationClip& clip) {
                         std::size_t routed_tracks = 0;
+                        std::size_t encoded_value_bytes = 0;
                         for (const auto& channel : clip.channels) {
                             routed_tracks +=
                                 channel.routed_track_count;
+                            encoded_value_bytes +=
+                                channel.encoded_value_bytes.size();
                         }
                         output << "[runtime.source-mission] "
                                << clip.role
@@ -486,7 +489,9 @@ int run_runtime(
                                        : "ies")
                                << " and "
                                << routed_tracks
-                               << " routed tracks\n";
+                               << " routed tracks with "
+                               << encoded_value_bytes
+                               << " encoded value bytes\n";
                     };
                 const auto& selected =
                     source_mission->character_animations.value();

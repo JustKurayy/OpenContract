@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace contract::mission {
 
@@ -44,8 +45,9 @@ struct SourceMissionLoadError {
 };
 
 struct SourceCharacterAnimationChannel {
-    std::uint8_t slot{0};
+    std::uint8_t channel_mask{0};
     std::size_t routed_track_count{0};
+    std::vector<std::byte> encoded_value_bytes;
 };
 
 struct SourceCharacterAnimationClip {

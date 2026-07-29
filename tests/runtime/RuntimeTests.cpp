@@ -205,9 +205,19 @@ public:
                     128,
                     {
                         contract::mission::
-                            SourceCharacterAnimationChannel{0, 16},
+                            SourceCharacterAnimationChannel{
+                                1,
+                                16,
+                                std::vector<std::byte>(
+                                    3,
+                                    std::byte{0x11})},
                         contract::mission::
-                            SourceCharacterAnimationChannel{3, 3}
+                            SourceCharacterAnimationChannel{
+                                8,
+                                3,
+                                std::vector<std::byte>(
+                                    2,
+                                    std::byte{0x22})}
                     }
                 },
                 {
@@ -220,9 +230,19 @@ public:
                     256,
                     {
                         contract::mission::
-                            SourceCharacterAnimationChannel{0, 8},
+                            SourceCharacterAnimationChannel{
+                                1,
+                                8,
+                                std::vector<std::byte>(
+                                    4,
+                                    std::byte{0x33})},
                         contract::mission::
-                            SourceCharacterAnimationChannel{2, 1}
+                            SourceCharacterAnimationChannel{
+                                4,
+                                1,
+                                std::vector<std::byte>(
+                                    1,
+                                    std::byte{0x44})}
                     }
                 },
                 {
@@ -235,7 +255,12 @@ public:
                     320,
                     {
                         contract::mission::
-                            SourceCharacterAnimationChannel{0, 8}
+                            SourceCharacterAnimationChannel{
+                                1,
+                                8,
+                                std::vector<std::byte>(
+                                    6,
+                                    std::byte{0x55})}
                     }
                 }
             };
@@ -485,19 +510,19 @@ int main() {
         source_output.str().find(
             "idle source clip 2: 10 samples at 20 Hz, 4 tracks and "
             "128 encoded bytes across 2 channel directories and "
-            "19 routed tracks") !=
+            "19 routed tracks with 5 encoded value bytes") !=
         std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
             "walk source clip 0: 18 samples at 25 Hz, 8 tracks and "
             "256 encoded bytes across 2 channel directories and "
-            "9 routed tracks") !=
+            "9 routed tracks with 5 encoded value bytes") !=
         std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
             "sprint source clip 1: 15 samples at 25 Hz, 8 tracks and "
             "320 encoded bytes across 1 channel directory and "
-            "8 routed tracks") !=
+            "8 routed tracks with 6 encoded value bytes") !=
         std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());
