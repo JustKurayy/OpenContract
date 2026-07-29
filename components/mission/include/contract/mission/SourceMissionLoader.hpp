@@ -44,9 +44,14 @@ struct SourceMissionLoadError {
     std::string message;
 };
 
+struct SourceCharacterAnimationTrack {
+    std::uint16_t track_id{0};
+    std::uint8_t encoding{0};
+};
+
 struct SourceCharacterAnimationChannel {
     std::uint8_t channel_mask{0};
-    std::size_t routed_track_count{0};
+    std::vector<SourceCharacterAnimationTrack> tracks;
     std::vector<std::byte> encoded_value_bytes;
 };
 

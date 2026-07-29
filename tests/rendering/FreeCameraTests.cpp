@@ -13,6 +13,13 @@ bool near(float left, float right) {
 }
 
 int main() {
+    const auto advanced_yaw =
+        contract::rendering::advance_camera_yaw(
+            0.0F,
+            1.0F,
+            0.5F);
+    CONTRACT_EXPECT(near(advanced_yaw, 0.375F));
+
     contract::rendering::FreeCamera camera;
     camera.frame_scene({10.0F, 20.0F, 30.0F}, 100.0F);
 

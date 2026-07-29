@@ -139,10 +139,19 @@ source_animation_clip(
     std::vector<SourceCharacterAnimationChannel> channels;
     channels.reserve(directories.value().size());
     for (auto& directory : directories.value()) {
+        std::vector<SourceCharacterAnimationTrack> tracks;
+        tracks.reserve(directory.tracks.size());
+        for (const auto& track : directory.tracks) {
+            tracks.push_back(
+                {
+                    track.track_id,
+                    track.encoding
+                });
+        }
         channels.push_back(
             {
                 directory.channel_mask,
-                directory.tracks.size(),
+                std::move(tracks),
                 std::move(directory.encoded_value_bytes)
             });
     }
@@ -606,6 +615,38 @@ ReadOnlySourceMissionLoader::load(
         rig_bone_count = skeleton.joints.size();
         skinned_vertex_count =
             placed_scene.value().player_model->skinning.size();
+        const auto validate_clip_routes =
+            [&skeleton](
+                const SourceCharacterAnimationClip& clip)
+                -> std::optional<std::string> {
+                for (const auto& channel : clip.channels) {
+                    for (const auto& track : channel.tracks) {
+                        if (track.track_id >=
+                            skeleton.joints.size()) {
+                            return
+                                "Source " + clip.role +
+                                " animation track identifier " +
+                                std::to_string(track.track_id) +
+                                " exceeds the source rig joint domain";
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
+        for (const auto* clip : {
+                 &character_animations.idle,
+                 &character_animations.walk,
+                 &character_animations.sprint}) {
+            const auto route_error =
+                validate_clip_routes(*clip);
+            if (route_error.has_value()) {
+                return failure(
+                    SourceMissionLoadErrorCode::
+                        animation_decode_failed,
+                    archive_path,
+                    route_error.value());
+            }
+        }
         placed_scene.value().player_model->skeleton =
             std::move(skeleton);
     }

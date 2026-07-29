@@ -112,6 +112,38 @@ int main() {
         animator.state().sequence,
         CharacterAnimationSequence::idle);
 
+    auto configured = animator.configure(
+        {
+            0.5F,
+            2.0F,
+            4.0F
+        });
+    CONTRACT_EXPECT(configured.has_value());
+    auto source_walk = animator.update(
+        CharacterAnimationInput{1.0F, 0.0F, false},
+        0.5F);
+    CONTRACT_EXPECT(source_walk.has_value());
+    CONTRACT_EXPECT_EQ(
+        animator.state().sequence,
+        CharacterAnimationSequence::walk);
+    CONTRACT_EXPECT_EQ(animator.state().phase, 0.25F);
+    auto source_sprint = animator.update(
+        CharacterAnimationInput{1.0F, 0.0F, true},
+        1.0F);
+    CONTRACT_EXPECT(source_sprint.has_value());
+    CONTRACT_EXPECT_EQ(
+        animator.state().sequence,
+        CharacterAnimationSequence::sprint);
+    CONTRACT_EXPECT_EQ(animator.state().phase, 0.25F);
+
+    auto invalid_timing = animator.configure(
+        {
+            0.5F,
+            0.0F,
+            4.0F
+        });
+    CONTRACT_EXPECT(!invalid_timing.has_value());
+
     const auto scene = character_scene();
     animator = CharacterAnimator{};
     auto advanced = animator.update(

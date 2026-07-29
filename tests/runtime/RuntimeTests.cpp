@@ -95,6 +95,8 @@ public:
         ++calls;
         maximum_frames = options.maximum_frames;
         controlled_entity = options.controlled_entity;
+        character_animation_timing =
+            options.character_animation_timing;
         collision_index_count =
             options.collision_scene == nullptr
                 ? 0
@@ -138,12 +140,34 @@ public:
     bool fail{false};
     std::optional<std::uint64_t> maximum_frames;
     std::optional<contract::scene::EntityId> controlled_entity;
+    std::optional<
+        contract::runtime::RuntimeCharacterAnimationTiming>
+        character_animation_timing;
     std::size_t collision_index_count{0};
     std::size_t player_model_vertex_count{0};
     std::size_t render_vertex_count{0};
     contract::runtime::RuntimeObservation initial_observation;
     contract::runtime::RuntimeObservation final_observation;
 };
+
+std::vector<contract::mission::SourceCharacterAnimationTrack>
+synthetic_animation_tracks(
+    std::size_t count,
+    std::uint16_t first_joint,
+    std::uint8_t encoding) {
+    std::vector<
+        contract::mission::SourceCharacterAnimationTrack> tracks;
+    tracks.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        tracks.push_back(
+            {
+                static_cast<std::uint16_t>(
+                    first_joint + index),
+                encoding
+            });
+    }
+    return tracks;
+}
 
 class SyntheticSourceMissionLoader final
     : public contract::mission::ISourceMissionLoader {
@@ -207,14 +231,20 @@ public:
                         contract::mission::
                             SourceCharacterAnimationChannel{
                                 1,
-                                16,
+                                synthetic_animation_tracks(
+                                    16,
+                                    0,
+                                    0xe3),
                                 std::vector<std::byte>(
                                     3,
                                     std::byte{0x11})},
                         contract::mission::
                             SourceCharacterAnimationChannel{
                                 8,
-                                3,
+                                synthetic_animation_tracks(
+                                    3,
+                                    16,
+                                    0x91),
                                 std::vector<std::byte>(
                                     2,
                                     std::byte{0x22})}
@@ -232,14 +262,20 @@ public:
                         contract::mission::
                             SourceCharacterAnimationChannel{
                                 1,
-                                8,
+                                synthetic_animation_tracks(
+                                    8,
+                                    0,
+                                    0xe3),
                                 std::vector<std::byte>(
                                     4,
                                     std::byte{0x33})},
                         contract::mission::
                             SourceCharacterAnimationChannel{
                                 4,
-                                1,
+                                synthetic_animation_tracks(
+                                    1,
+                                    8,
+                                    0xe6),
                                 std::vector<std::byte>(
                                     1,
                                     std::byte{0x44})}
@@ -257,7 +293,10 @@ public:
                         contract::mission::
                             SourceCharacterAnimationChannel{
                                 1,
-                                8,
+                                synthetic_animation_tracks(
+                                    8,
+                                    0,
+                                    0xe3),
                                 std::vector<std::byte>(
                                     6,
                                     std::byte{0x55})}
@@ -480,6 +519,21 @@ int main() {
     CONTRACT_EXPECT_EQ(
         runner.controlled_entity->value(),
         std::string("player.local"));
+    CONTRACT_EXPECT(runner.character_animation_timing.has_value());
+    if (runner.character_animation_timing.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            runner.character_animation_timing->
+                idle_duration_seconds,
+            0.5F);
+        CONTRACT_EXPECT_EQ(
+            runner.character_animation_timing->
+                walk_duration_seconds,
+            0.72F);
+        CONTRACT_EXPECT_EQ(
+            runner.character_animation_timing->
+                sprint_duration_seconds,
+            0.6F);
+    }
     CONTRACT_EXPECT_EQ(
         runner.initial_observation.entities.size(),
         std::size_t{1});

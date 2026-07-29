@@ -132,6 +132,34 @@ int main() {
         CONTRACT_EXPECT_EQ(command.transform.position[2], 40.0F);
     }
 
+    runtime::PlayerInput camera_relative;
+    camera_relative.forward = 1.0F;
+    camera_relative.heading_radians = 1.570796327F;
+    const auto camera_moved = controller.update(
+        observation_with_player(),
+        camera_relative,
+        1.0F);
+    CONTRACT_EXPECT(camera_moved.has_value());
+    CONTRACT_EXPECT(camera_moved.value().has_value());
+    if (camera_moved.has_value() &&
+        camera_moved.value().has_value()) {
+        const auto& command =
+            std::get<runtime::SetEntityTransformCommand>(
+                camera_moved.value().value());
+        CONTRACT_EXPECT(near(
+            command.transform.position[0],
+            20.0F));
+        CONTRACT_EXPECT(near(
+            command.transform.position[2],
+            30.0F));
+        CONTRACT_EXPECT(near(
+            command.transform.rotation[1],
+            std::sin(1.570796327F * 0.5F)));
+        CONTRACT_EXPECT(near(
+            command.transform.rotation[3],
+            std::cos(1.570796327F * 0.5F)));
+    }
+
     const auto invalid_step = controller.update(
         observation_with_player(),
         diagonal,
@@ -151,6 +179,18 @@ int main() {
     CONTRACT_EXPECT(!rejected_input.has_value());
     CONTRACT_EXPECT_EQ(
         rejected_input.error().code,
+        runtime::PlayerControllerErrorCode::invalid_input);
+
+    runtime::PlayerInput invalid_heading;
+    invalid_heading.heading_radians =
+        std::numeric_limits<float>::infinity();
+    const auto rejected_heading = controller.update(
+        observation_with_player(),
+        invalid_heading,
+        1.0F);
+    CONTRACT_EXPECT(!rejected_heading.has_value());
+    CONTRACT_EXPECT_EQ(
+        rejected_heading.error().code,
         runtime::PlayerControllerErrorCode::invalid_input);
 
     const runtime::PlayerController missing_controller(

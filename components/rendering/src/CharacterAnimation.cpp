@@ -39,14 +39,16 @@ CharacterAnimationSequence select_sequence(
         : CharacterAnimationSequence::walk;
 }
 
-float cycles_per_second(CharacterAnimationSequence sequence) {
+float duration_seconds(
+    const CharacterAnimationTiming& timing,
+    CharacterAnimationSequence sequence) {
     switch (sequence) {
     case CharacterAnimationSequence::idle:
-        return 0.35F;
+        return timing.idle_duration_seconds;
     case CharacterAnimationSequence::walk:
-        return 1.8F;
+        return timing.walk_duration_seconds;
     case CharacterAnimationSequence::sprint:
-        return 2.8F;
+        return timing.sprint_duration_seconds;
     }
     return 0.0F;
 }
@@ -185,6 +187,24 @@ float joint_angle(
 }
 
 core::Result<void, CharacterAnimationError>
+CharacterAnimator::configure(
+    const CharacterAnimationTiming& timing) {
+    if (!std::isfinite(timing.idle_duration_seconds) ||
+        !std::isfinite(timing.walk_duration_seconds) ||
+        !std::isfinite(timing.sprint_duration_seconds) ||
+        timing.idle_duration_seconds <= 0.0F ||
+        timing.walk_duration_seconds <= 0.0F ||
+        timing.sprint_duration_seconds <= 0.0F) {
+        return failure(
+            CharacterAnimationErrorCode::invalid_configuration,
+            "Character animation durations must be positive and finite");
+    }
+    timing_ = timing;
+    state_.phase = 0.0F;
+    return core::Result<void, CharacterAnimationError>::success();
+}
+
+core::Result<void, CharacterAnimationError>
 CharacterAnimator::update(
     const CharacterAnimationInput& input,
     float elapsed_seconds) {
@@ -206,7 +226,8 @@ CharacterAnimator::update(
     }
     state_.phase = std::fmod(
         state_.phase +
-            elapsed_seconds * cycles_per_second(sequence),
+            elapsed_seconds /
+                duration_seconds(timing_, sequence),
         1.0F);
     return core::Result<void, CharacterAnimationError>::success();
 }

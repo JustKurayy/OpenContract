@@ -17,6 +17,11 @@ struct FreeCameraInput {
     bool fast{false};
 };
 
+[[nodiscard]] float advance_camera_yaw(
+    float yaw,
+    float input,
+    float elapsed_seconds) noexcept;
+
 class FreeCamera {
 public:
     void frame_scene(

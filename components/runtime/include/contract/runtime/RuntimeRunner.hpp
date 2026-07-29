@@ -12,12 +12,20 @@
 
 namespace contract::runtime {
 
+struct RuntimeCharacterAnimationTiming {
+    float idle_duration_seconds{0.0F};
+    float walk_duration_seconds{0.0F};
+    float sprint_duration_seconds{0.0F};
+};
+
 struct RuntimeRunnerOptions {
     std::optional<std::uint64_t> maximum_frames;
     const scene::RenderScene* render_scene{nullptr};
     const scene::CollisionScene* collision_scene{nullptr};
     const scene::RenderScene* player_model{nullptr};
     std::optional<scene::EntityId> controlled_entity;
+    std::optional<RuntimeCharacterAnimationTiming>
+        character_animation_timing;
 };
 
 enum class RuntimeRunnerErrorCode {

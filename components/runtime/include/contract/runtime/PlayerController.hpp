@@ -17,6 +17,7 @@ inline constexpr std::string_view player_component_type{
 struct PlayerInput {
     float forward{0.0F};
     float right{0.0F};
+    float heading_radians{0.0F};
     bool sprint{false};
 };
 

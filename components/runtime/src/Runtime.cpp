@@ -465,7 +465,7 @@ int run_runtime(
                         std::size_t encoded_value_bytes = 0;
                         for (const auto& channel : clip.channels) {
                             routed_tracks +=
-                                channel.routed_track_count;
+                                channel.tracks.size();
                             encoded_value_bytes +=
                                 channel.encoded_value_bytes.size();
                         }
@@ -513,6 +513,25 @@ int run_runtime(
             }
         }
 
+        std::optional<RuntimeCharacterAnimationTiming>
+            character_animation_timing;
+        if (source_mission.has_value() &&
+            source_mission->character_animations.has_value()) {
+            const auto& animations =
+                source_mission->character_animations.value();
+            character_animation_timing =
+                RuntimeCharacterAnimationTiming{
+                    animations.idle.sample_count /
+                        static_cast<float>(
+                            animations.idle.samples_per_second),
+                    animations.walk.sample_count /
+                        static_cast<float>(
+                            animations.walk.samples_per_second),
+                    animations.sprint.sample_count /
+                        static_cast<float>(
+                            animations.sprint.samples_per_second)
+                };
+        }
         const auto run_result = context.runner->run(
             host,
             {
@@ -531,7 +550,8 @@ int run_runtime(
                     ? std::optional<scene::EntityId>{
                           scene::EntityId(
                               std::string(source_player_id))}
-                    : std::nullopt
+                    : std::nullopt,
+                character_animation_timing
             });
         if (!run_result.has_value()) {
             context.diagnostics.emit(

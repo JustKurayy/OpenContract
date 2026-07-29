@@ -329,6 +329,22 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();
     rendering::CharacterAnimator character_animator;
+    if (options.character_animation_timing.has_value()) {
+        const auto& timing =
+            options.character_animation_timing.value();
+        auto configured = character_animator.configure(
+            {
+                timing.idle_duration_seconds,
+                timing.walk_duration_seconds,
+                timing.sprint_duration_seconds
+            });
+        if (!configured.has_value()) {
+            renderer.shutdown();
+            static_cast<void>(DestroyWindow(window));
+            return platform_failure(configured.error().message);
+        }
+    }
+    float player_camera_yaw = 0.0F;
 
     while (!state.closed) {
         MSG message{};
@@ -367,10 +383,17 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
                 current_time - previous_time);
         previous_time = current_time;
         std::vector<runtime::RuntimeCommand> commands;
-        const auto current_player_input = player_input(state);
+        auto current_player_input = player_input(state);
+        const auto current_camera_input = camera_input(state);
         const auto elapsed_seconds = (std::max)(
             std::chrono::duration<float>(elapsed).count(),
             0.000001F);
+        player_camera_yaw = rendering::advance_camera_yaw(
+            player_camera_yaw,
+            current_camera_input.yaw,
+            elapsed_seconds);
+        current_player_input.heading_radians =
+            player_camera_yaw;
         auto animation_updated = character_animator.update(
             {
                 current_player_input.forward,
@@ -418,7 +441,7 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
         state.observation = std::move(frame.value().observation);
         auto rendered = renderer.render(
             state.observation,
-            camera_input(state),
+            current_camera_input,
             std::chrono::duration<float>(elapsed).count(),
             state.wireframe,
             character_animator.state());

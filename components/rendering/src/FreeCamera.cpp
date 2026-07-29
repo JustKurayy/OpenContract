@@ -11,6 +11,22 @@ constexpr float kLookSpeed = 1.5F;
 
 }
 
+float advance_camera_yaw(
+    float yaw,
+    float input,
+    float elapsed_seconds) noexcept {
+    if (!std::isfinite(yaw) ||
+        !std::isfinite(input) ||
+        !std::isfinite(elapsed_seconds) ||
+        elapsed_seconds <= 0.0F) {
+        return yaw;
+    }
+    const auto step = std::min(elapsed_seconds, 0.25F);
+    return yaw +
+        std::clamp(input, -1.0F, 1.0F) *
+            kLookSpeed * step;
+}
+
 void FreeCamera::frame_scene(
     CameraPoint center,
     float radius) noexcept {
@@ -63,8 +79,10 @@ void FreeCamera::orbit_subject(
     if (std::isfinite(elapsed_seconds) &&
         elapsed_seconds > 0.0F) {
         const auto step = std::min(elapsed_seconds, 0.25F);
-        yaw_ += std::clamp(input.yaw, -1.0F, 1.0F) *
-            kLookSpeed * step;
+        yaw_ = advance_camera_yaw(
+            yaw_,
+            input.yaw,
+            elapsed_seconds);
         pitch_ = std::clamp(
             pitch_ +
                 std::clamp(input.pitch, -1.0F, 1.0F) *
@@ -88,8 +106,10 @@ void FreeCamera::update(
         return;
     }
     const auto step = std::min(elapsed_seconds, 0.25F);
-    yaw_ += std::clamp(input.yaw, -1.0F, 1.0F) *
-        kLookSpeed * step;
+    yaw_ = advance_camera_yaw(
+        yaw_,
+        input.yaw,
+        elapsed_seconds);
     pitch_ = std::clamp(
         pitch_ +
             std::clamp(input.pitch, -1.0F, 1.0F) *

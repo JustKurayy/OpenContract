@@ -44,7 +44,8 @@ PlayerController::update(
             });
     }
     if (!std::isfinite(input.forward) ||
-        !std::isfinite(input.right)) {
+        !std::isfinite(input.right) ||
+        !std::isfinite(input.heading_radians)) {
         return core::Result<
             std::optional<RuntimeCommand>,
             PlayerControllerError>::failure(
@@ -95,6 +96,16 @@ PlayerController::update(
     if (moving && length > 1.0F) {
         right /= length;
         forward /= length;
+    }
+    if (moving) {
+        const auto cosine = std::cos(input.heading_radians);
+        const auto sine = std::sin(input.heading_radians);
+        const auto oriented_right =
+            right * cosine + forward * sine;
+        const auto oriented_forward =
+            forward * cosine - right * sine;
+        right = oriented_right;
+        forward = oriented_forward;
     }
 
     auto transform = player->transform;
