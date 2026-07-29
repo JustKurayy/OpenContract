@@ -119,7 +119,7 @@ int main() {
     contract::formats::ScenePlacement hidden_child;
     hidden_child.primitive_record = 42;
 
-    std::vector<contract::formats::GmsSceneNode> hierarchy(6);
+    std::vector<contract::formats::GmsSceneNode> hierarchy(7);
     hierarchy[0].name = "root";
     hierarchy[1].name = "spawn.synthetic";
     hierarchy[1].parent_index = 0;
@@ -132,12 +132,16 @@ int main() {
     hierarchy[4].parent_index = 0;
     hierarchy[5].name = "character-mesh.synthetic";
     hierarchy[5].parent_index = 4;
+    hierarchy[6].name = "dynamic.synthetic";
+    hierarchy[6].parent_index = 0;
 
     contract::formats::ScenePlacement character_root;
     character_root.position = {50.0F, 0.0F, 0.0F};
     contract::formats::ScenePlacement character_child;
     character_child.primitive_record = 43;
     character_child.position = {0.0F, 2.0F, 0.0F};
+    contract::formats::ScenePlacement dynamic_attachment;
+    dynamic_attachment.primitive_record = 42;
 
     const std::vector nested_placements{
         root,
@@ -145,7 +149,8 @@ int main() {
         hidden_parent,
         hidden_child,
         character_root,
-        character_child
+        character_child,
+        dynamic_attachment
     };
     contract::formats::MaterialDatabase materials;
     materials.materials.resize(77);
@@ -192,6 +197,11 @@ int main() {
     overlay_mesh.material_id = 3;
     auto character_mesh = mesh;
     character_mesh.model_record = 43;
+    character_mesh.skinning = {
+        {{{1, 2, 3, 4}}, {{0.6F, 0.2F, 0.1F, 0.1F}}},
+        {{{5, 6, 7, 8}}, {{0.7F, 0.2F, 0.1F, 0.0F}}},
+        {{{9, 10, 11, 12}}, {{1.0F, 0.0F, 0.0F, 0.0F}}}
+    };
     const std::vector nested_meshes{
         mesh,
         collision_mesh,
@@ -202,6 +212,8 @@ int main() {
         "spawn.synthetic"};
     constexpr std::string_view preferred_character_nodes[]{
         "character.synthetic"};
+    constexpr std::string_view suppressed_nodes[]{
+        "dynamic.synthetic"};
     const auto nested =
         contract::mission::SourceSceneBuilder::build(
             nested_meshes,
@@ -210,7 +222,8 @@ int main() {
             resources,
             {
                 preferred_spawn_nodes,
-                preferred_character_nodes
+                preferred_character_nodes,
+                suppressed_nodes
             });
     CONTRACT_EXPECT(nested.has_value());
     if (nested.has_value()) {
@@ -234,6 +247,9 @@ int main() {
             std::size_t{1});
         CONTRACT_EXPECT_EQ(
             nested.value().overlay_meshes,
+            std::size_t{1});
+        CONTRACT_EXPECT_EQ(
+            nested.value().suppressed_dynamic_placements,
             std::size_t{1});
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.vertices[1].u,
@@ -295,6 +311,17 @@ int main() {
         CONTRACT_EXPECT_EQ(
             nested.value().player_model->indices.size(),
             std::size_t{3});
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->skinning.size(),
+            std::size_t{3});
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model->skinning[0].joints[3],
+            std::uint16_t{4});
+        CONTRACT_EXPECT(
+            nested.value().player_model_record.has_value());
+        CONTRACT_EXPECT_EQ(
+            nested.value().player_model_record.value(),
+            std::uint32_t{43});
         CONTRACT_EXPECT_EQ(
             nested.value().player_model->vertices[0].x,
             1.0F);

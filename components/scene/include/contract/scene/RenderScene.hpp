@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace contract::scene {
@@ -52,11 +54,56 @@ struct RenderBatch {
     float alpha_reference{0.0F};
 };
 
+struct RenderSkinning {
+    std::array<std::uint16_t, 4> joints{0, 0, 0, 0};
+    std::array<float, 4> weights{1.0F, 0.0F, 0.0F, 0.0F};
+};
+
+enum class RenderJointRole {
+    unknown,
+    root,
+    pelvis,
+    spine_lower,
+    spine_middle,
+    spine_upper,
+    neck,
+    head,
+    left_clavicle,
+    left_upper_arm,
+    left_forearm,
+    left_hand,
+    right_clavicle,
+    right_upper_arm,
+    right_forearm,
+    right_hand,
+    left_thigh,
+    left_calf,
+    left_foot,
+    left_toe,
+    right_thigh,
+    right_calf,
+    right_foot,
+    right_toe
+};
+
+struct RenderJoint {
+    std::string name;
+    std::optional<std::size_t> parent_index;
+    RenderJointRole role{RenderJointRole::unknown};
+    std::array<float, 3> reference_position{0.0F, 0.0F, 0.0F};
+};
+
+struct RenderSkeleton {
+    std::vector<RenderJoint> joints;
+};
+
 struct RenderScene {
     std::vector<RenderVertex> vertices;
+    std::vector<RenderSkinning> skinning;
     std::vector<std::uint32_t> indices;
     std::vector<RenderTexture> textures;
     std::vector<RenderBatch> batches;
+    std::optional<RenderSkeleton> skeleton;
     std::size_t source_mesh_count{0};
 };
 

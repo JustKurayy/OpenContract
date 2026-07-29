@@ -410,7 +410,10 @@ int run_runtime(
                    << source_mission->collision_scene.indices.size() / 3U
                    << " query triangles, "
                    << source_mission->overlay_meshes
-                   << " overlay meshes suppressed, "
+                   << " overlay meshes and "
+                    << source_mission->suppressed_dynamic_placements
+                   << " unsupported dynamic character "
+                   << "attachments suppressed, "
                    << source_mission->texture_count
                    << " diffuse textures, and "
                    << source_mission->render_batch_count
@@ -419,8 +422,8 @@ int run_runtime(
                    << " fallback indices, "
                    << materialless_indices
                    << " materialless) from "
-                       << source_mission->archive_path.string()
-                       << '\n';
+                    << source_mission->archive_path.string()
+                    << '\n';
             if (source_mission->player_model.has_value()) {
                 const auto& player_model =
                     source_mission->player_model.value();
@@ -433,7 +436,11 @@ int run_runtime(
                        << player_model.batches.size()
                        << " render batches, and "
                        << player_model.textures.size()
-                       << " textures\n";
+                       << " textures; source rig has "
+                       << source_mission->rig_bone_count
+                       << " bones and "
+                       << source_mission->skinned_vertex_count
+                       << " skinned vertices\n";
             } else {
                 output << "[runtime.source-mission] No source base "
                        << "player model found; using procedural fallback\n";

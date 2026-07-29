@@ -633,6 +633,15 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
             RendererErrorCode::invalid_scene,
             "Player model must contain addressable vertices and indices");
     }
+    if ((!scene.skinning.empty() ||
+         scene.skeleton.has_value()) &&
+        (scene.skinning.size() != scene.vertices.size() ||
+         !scene.skeleton.has_value() ||
+         scene.skeleton->joints.empty())) {
+        return renderer_failure(
+            RendererErrorCode::invalid_scene,
+            "Player model rig data is empty or misaligned");
+    }
     for (const auto& vertex : scene.vertices) {
         if (!std::isfinite(vertex.x) ||
             !std::isfinite(vertex.y) ||
@@ -775,6 +784,8 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
     character_index_count_ =
         static_cast<std::uint32_t>(scene.indices.size());
     character_base_vertices_ = scene.vertices;
+    character_skinning_ = scene.skinning;
+    character_skeleton_ = scene.skeleton;
     source_character_model_ = true;
     return core::Result<void, RendererError>::success();
 }
@@ -914,9 +925,16 @@ core::Result<void, RendererError> BgfxRenderer::render(
             character_index_buffer_handle_ != 0xffffU &&
             (source_character_model_ ||
              character_texture_handle_ != 0xffffU)) {
-            auto posed = animate_character(
-                character_base_vertices_,
-                character_animation);
+            const auto posed =
+                character_skeleton_.has_value()
+                    ? animate_character(
+                          character_base_vertices_,
+                          character_skinning_,
+                          character_skeleton_.value(),
+                          character_animation)
+                    : animate_character(
+                          character_base_vertices_,
+                          character_animation);
             if (!posed.has_value()) {
                 return renderer_failure(
                     RendererErrorCode::invalid_scene,
@@ -1088,9 +1106,12 @@ core::Result<void, RendererError> BgfxRenderer::render(
         3,
         14,
         0x0b,
-        "Character sequence: %s",
+        "Character sequence: %s (%s)",
         character_sequence_name(
-            character_animation.sequence).data());
+            character_animation.sequence).data(),
+        character_skeleton_.has_value()
+            ? "source rig"
+            : "fallback");
     bgfx::dbgTextPrintf(
         3,
         10,
@@ -1194,6 +1215,8 @@ void BgfxRenderer::shutdown() noexcept {
     batches_.clear();
     character_batches_.clear();
     character_base_vertices_.clear();
+    character_skinning_.clear();
+    character_skeleton_.reset();
     vertex_count_ = 0;
     index_count_ = 0;
     wireframe_index_count_ = 0;

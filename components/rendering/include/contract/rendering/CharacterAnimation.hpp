@@ -59,6 +59,15 @@ animate_character(
     const std::vector<scene::RenderVertex>& vertices,
     const CharacterAnimationState& state);
 
+[[nodiscard]] core::Result<
+    std::vector<scene::RenderVertex>,
+    CharacterAnimationError>
+animate_character(
+    const std::vector<scene::RenderVertex>& vertices,
+    const std::vector<scene::RenderSkinning>& skinning,
+    const scene::RenderSkeleton& skeleton,
+    const CharacterAnimationState& state);
+
 [[nodiscard]] std::string_view character_sequence_name(
     CharacterAnimationSequence sequence) noexcept;
 

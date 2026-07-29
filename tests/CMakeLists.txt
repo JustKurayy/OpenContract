@@ -51,6 +51,13 @@ target_link_libraries(
     PRIVATE OpenContract::formats)
 
 contract_add_test(
+    contract-primitive-rig-decoder-tests
+    formats/PrimitiveRigDecoderTests.cpp)
+target_link_libraries(
+    contract-primitive-rig-decoder-tests
+    PRIVATE OpenContract::formats)
+
+contract_add_test(
     contract-scene-placement-decoder-tests
     formats/ScenePlacementDecoderTests.cpp)
 target_link_libraries(

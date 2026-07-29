@@ -1,5 +1,6 @@
 #include <contract/formats/PrimitiveSceneDecoder.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -308,6 +309,65 @@ decode_object(
                     std::nullopt);
             }
             mesh.texture_coordinates.push_back(coordinate);
+        }
+    }
+    if (stride == 52U) {
+        constexpr float weight_tolerance = 0.0001F;
+        mesh.skinning.reserve(vertex_count);
+        for (std::size_t vertex = 0;
+             vertex < vertex_count;
+             ++vertex) {
+            const auto vertex_offset = vertex * stride;
+            const auto first = read_f32(
+                vertices.value(),
+                vertex_offset + 12U);
+            const auto second = read_f32(
+                vertices.value(),
+                vertex_offset + 16U);
+            const auto third = read_f32(
+                vertices.value(),
+                vertex_offset + 20U);
+            const auto fourth =
+                1.0F - first - second - third;
+            const std::array<float, 4> weights{
+                first,
+                second,
+                third,
+                std::clamp(fourth, 0.0F, 1.0F)
+            };
+            const auto valid_weight =
+                std::isfinite(first) &&
+                std::isfinite(second) &&
+                std::isfinite(third) &&
+                first >= -weight_tolerance &&
+                second >= -weight_tolerance &&
+                third >= -weight_tolerance &&
+                fourth >= -weight_tolerance &&
+                first <= 1.0F + weight_tolerance &&
+                second <= 1.0F + weight_tolerance &&
+                third <= 1.0F + weight_tolerance;
+            if (!valid_weight) {
+                mesh.skinning.clear();
+                break;
+            }
+            mesh.skinning.push_back(
+                {
+                    {
+                        std::to_integer<std::uint8_t>(
+                            vertices.value()[
+                                vertex_offset + 24U]),
+                        std::to_integer<std::uint8_t>(
+                            vertices.value()[
+                                vertex_offset + 25U]),
+                        std::to_integer<std::uint8_t>(
+                            vertices.value()[
+                                vertex_offset + 26U]),
+                        std::to_integer<std::uint8_t>(
+                            vertices.value()[
+                                vertex_offset + 27U])
+                    },
+                    weights
+                });
         }
     }
 

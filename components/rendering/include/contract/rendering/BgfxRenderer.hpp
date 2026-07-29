@@ -7,6 +7,7 @@
 #include <contract/scene/RenderScene.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -84,6 +85,8 @@ private:
     std::vector<scene::RenderBatch> batches_;
     std::vector<scene::RenderBatch> character_batches_;
     std::vector<scene::RenderVertex> character_base_vertices_;
+    std::vector<scene::RenderSkinning> character_skinning_;
+    std::optional<scene::RenderSkeleton> character_skeleton_;
     std::uint32_t vertex_count_{0};
     std::uint32_t index_count_{0};
     std::uint32_t wireframe_index_count_{0};

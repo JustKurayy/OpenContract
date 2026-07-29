@@ -40,11 +40,16 @@ void write_f32(
 std::vector<std::byte> make_scene_container(
     bool invalid_index,
     bool primary_lod = true,
-    bool aligned_vertex_padding = false) {
+    bool aligned_vertex_padding = false,
+    std::size_t vertex_stride = 40) {
+    const auto vertex_bytes = std::size_t{3} * vertex_stride;
+    const auto vertex_record_size = aligned_vertex_padding
+        ? (vertex_bytes + 15U) & ~std::size_t{15U}
+        : vertex_bytes;
     const std::vector<std::size_t> sizes{
         16,
         16,
-        aligned_vertex_padding ? 128U : 120U,
+        vertex_record_size,
         16,
         16,
         64,
@@ -82,16 +87,41 @@ std::vector<std::byte> make_scene_container(
         for (std::size_t axis = 0; axis < 3; ++axis) {
             write_f32(
                 bytes,
-                offsets[2] + vertex * 40U + axis * 4U,
+                offsets[2] + vertex * vertex_stride + axis * 4U,
                 positions[vertex * 3U + axis]);
         }
+        if (vertex_stride == 52U) {
+            write_f32(
+                bytes,
+                offsets[2] + vertex * vertex_stride + 12U,
+                0.5F);
+            write_f32(
+                bytes,
+                offsets[2] + vertex * vertex_stride + 16U,
+                0.25F);
+            write_f32(
+                bytes,
+                offsets[2] + vertex * vertex_stride + 20U,
+                0.125F);
+            bytes[offsets[2] + vertex * vertex_stride + 24U] =
+                std::byte{1};
+            bytes[offsets[2] + vertex * vertex_stride + 25U] =
+                std::byte{2};
+            bytes[offsets[2] + vertex * vertex_stride + 26U] =
+                std::byte{3};
+            bytes[offsets[2] + vertex * vertex_stride + 27U] =
+                std::byte{4};
+        }
+        const auto texture_offset =
+            vertex_stride == 52U ? 36U : 20U;
         write_f32(
             bytes,
-            offsets[2] + vertex * 40U + 20U,
+            offsets[2] + vertex * vertex_stride + texture_offset,
             static_cast<float>(vertex) * 0.25F);
         write_f32(
             bytes,
-            offsets[2] + vertex * 40U + 24U,
+            offsets[2] + vertex * vertex_stride +
+                texture_offset + 4U,
             static_cast<float>(vertex) * 0.5F);
     }
 
@@ -199,6 +229,44 @@ int main() {
             CONTRACT_EXPECT_EQ(
                 invalid.error().code,
                 contract::formats::PrimitiveSceneDecodeErrorCode::no_meshes);
+        }
+    }
+
+    const auto skinned_bytes =
+        make_scene_container(false, true, false, 52);
+    contract::datasource::MemoryDataSource skinned_source(
+        skinned_bytes);
+    contract::datasource::ReadBudget skinned_index_budget(
+        4096,
+        256);
+    const auto skinned_container =
+        contract::formats::PrimitiveContainerIndex::read(
+            skinned_source,
+            skinned_index_budget);
+    CONTRACT_EXPECT(skinned_container.has_value());
+    if (skinned_container.has_value()) {
+        contract::datasource::ReadBudget skinned_decode_budget(
+            4096,
+            256);
+        const auto skinned =
+            contract::formats::PrimitiveSceneDecoder::decode(
+                skinned_container.value(),
+                skinned_source,
+                skinned_decode_budget);
+        CONTRACT_EXPECT(skinned.has_value());
+        if (skinned.has_value()) {
+            CONTRACT_EXPECT_EQ(
+                skinned.value().meshes[0].skinning.size(),
+                std::size_t{3});
+            CONTRACT_EXPECT_EQ(
+                skinned.value().meshes[0].skinning[0].weights[0],
+                0.5F);
+            CONTRACT_EXPECT_EQ(
+                skinned.value().meshes[0].skinning[0].weights[3],
+                0.125F);
+            CONTRACT_EXPECT_EQ(
+                skinned.value().meshes[0].skinning[0].joints[3],
+                std::uint8_t{4});
         }
     }
 

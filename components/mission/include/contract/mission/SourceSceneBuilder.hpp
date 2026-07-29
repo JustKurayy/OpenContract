@@ -47,12 +47,14 @@ struct SourceSceneBuildResources {
 struct SourceSceneBuildHints {
     std::span<const std::string_view> preferred_spawn_nodes;
     std::span<const std::string_view> preferred_character_nodes;
+    std::span<const std::string_view> suppressed_dynamic_nodes;
 };
 
 struct SourceSceneBuildResult {
     scene::RenderScene render_scene;
     scene::CollisionScene collision_scene;
     std::optional<scene::RenderScene> player_model;
+    std::optional<std::uint32_t> player_model_record;
     std::optional<scene::Transform> preferred_spawn;
     std::size_t active_placements{0};
     std::size_t inactive_placements{0};
@@ -64,6 +66,7 @@ struct SourceSceneBuildResult {
     std::size_t collision_meshes{0};
     std::size_t walkable_render_triangles{0};
     std::size_t overlay_meshes{0};
+    std::size_t suppressed_dynamic_placements{0};
 };
 
 class SourceSceneBuilder {

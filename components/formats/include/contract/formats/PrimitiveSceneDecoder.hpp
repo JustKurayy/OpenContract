@@ -4,6 +4,7 @@
 #include <contract/datasource/DataSource.hpp>
 #include <contract/formats/PrimitiveContainer.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -43,6 +44,11 @@ struct PrimitiveTextureCoordinate {
     float v{0.0F};
 };
 
+struct PrimitiveSkinning {
+    std::array<std::uint8_t, 4> joints{0, 0, 0, 0};
+    std::array<float, 4> weights{1.0F, 0.0F, 0.0F, 0.0F};
+};
+
 struct PrimitiveMesh {
     std::uint32_t model_record{0};
     std::uint32_t object_record{0};
@@ -50,6 +56,7 @@ struct PrimitiveMesh {
     std::uint16_t material_id{0};
     std::vector<PrimitivePosition> positions;
     std::vector<PrimitiveTextureCoordinate> texture_coordinates;
+    std::vector<PrimitiveSkinning> skinning;
     std::vector<std::uint32_t> indices;
 };
 

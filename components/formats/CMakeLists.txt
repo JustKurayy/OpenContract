@@ -3,6 +3,7 @@ add_library(contract-formats
     src/GmsSceneDecoder.cpp
     src/MaterialDatabaseDecoder.cpp
     src/PrimitiveContainer.cpp
+    src/PrimitiveRigDecoder.cpp
     src/PrimitiveSceneDecoder.cpp
     src/ScenePlacementDecoder.cpp
     src/TextureDatabaseDecoder.cpp

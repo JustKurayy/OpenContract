@@ -303,6 +303,8 @@ SourceSceneBuilder::build(
     inherited_inactive.reserve(placements.size());
     SourceSceneBuildResult result;
     scene::RenderScene player_model;
+    bool player_skinning_complete = true;
+    bool player_model_ambiguous = false;
     BatchIndexMap indices_by_material;
     BatchIndexMap player_indices_by_material;
     std::size_t total_index_count = 0;
@@ -405,6 +407,13 @@ SourceSceneBuilder::build(
         }
         if (local.invisible) {
             ++result.invisible_placements;
+            continue;
+        }
+        if (!hierarchy.empty() &&
+            matches_hint(
+                hierarchy[index].name,
+                hints.suppressed_dynamic_nodes)) {
+            ++result.suppressed_dynamic_placements;
             continue;
         }
         if (!result.preferred_spawn.has_value() &&
@@ -565,6 +574,18 @@ SourceSceneBuilder::build(
                 character_members[index]
                     ? player_model
                     : result.render_scene;
+            if (character_members[index] &&
+                !player_model_ambiguous) {
+                if (!result.player_model_record.has_value()) {
+                    result.player_model_record =
+                        mesh->model_record;
+                } else if (
+                    result.player_model_record.value() !=
+                    mesh->model_record) {
+                    result.player_model_record.reset();
+                    player_model_ambiguous = true;
+                }
+            }
             auto& target_indices =
                 character_members[index]
                     ? player_indices_by_material
@@ -626,6 +647,32 @@ SourceSceneBuilder::build(
                     target_scene
                         .vertices[base_vertex + vertex]
                         .v = mesh->texture_coordinates[vertex].v;
+                }
+            }
+            if (character_members[index] &&
+                player_skinning_complete) {
+                if (mesh->skinning.size() !=
+                    mesh->positions.size()) {
+                    player_model.skinning.clear();
+                    player_skinning_complete = false;
+                } else {
+                    player_model.skinning.reserve(
+                        player_model.vertices.size());
+                    for (const auto& skinning :
+                         mesh->skinning) {
+                        scene::RenderSkinning converted;
+                        for (std::size_t influence = 0;
+                             influence <
+                                 converted.joints.size();
+                             ++influence) {
+                            converted.joints[influence] =
+                                skinning.joints[influence];
+                            converted.weights[influence] =
+                                skinning.weights[influence];
+                        }
+                        player_model.skinning.push_back(
+                            converted);
+                    }
                 }
             }
             auto& batch_indices =
@@ -759,6 +806,12 @@ SourceSceneBuilder::build(
     }
     if (!player_model.vertices.empty() &&
         !player_indices_by_material.empty()) {
+        if (!player_skinning_complete ||
+            player_model.skinning.size() !=
+                player_model.vertices.size()) {
+            player_model.skinning.clear();
+            result.player_model_record.reset();
+        }
         auto finalized_player = finalize_batches(
             player_model,
             player_indices_by_material,

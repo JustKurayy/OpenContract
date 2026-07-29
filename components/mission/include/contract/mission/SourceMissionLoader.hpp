@@ -28,6 +28,7 @@ enum class SourceMissionLoadErrorCode {
     hierarchy_decode_failed,
     material_decode_failed,
     texture_decode_failed,
+    rig_decode_failed,
     scene_decode_failed,
     scene_limit_exceeded
 };
@@ -59,8 +60,11 @@ struct SourceMissionLoadResult {
     std::size_t collision_meshes{0};
     std::size_t walkable_render_triangles{0};
     std::size_t overlay_meshes{0};
+    std::size_t suppressed_dynamic_placements{0};
     std::size_t texture_count{0};
     std::size_t render_batch_count{0};
+    std::size_t rig_bone_count{0};
+    std::size_t skinned_vertex_count{0};
     std::optional<scene::Transform> preferred_spawn;
 };
 
