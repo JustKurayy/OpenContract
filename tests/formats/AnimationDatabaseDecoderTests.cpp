@@ -2,6 +2,7 @@
 
 #include <contract/datasource/DataSource.hpp>
 #include <contract/formats/AnimationDatabaseDecoder.hpp>
+#include <contract/formats/AnimationTrackDirectory.hpp>
 
 #include <array>
 #include <cstddef>
@@ -371,6 +372,109 @@ int main() {
         CONTRACT_EXPECT_EQ(
             truncated.error().code,
             AnimationDatabaseDecodeErrorCode::invalid_chunk);
+    }
+
+    contract::formats::AnimationClipDescriptor routed_descriptor;
+    routed_descriptor.encoded_size = 64;
+    routed_descriptor.channel_offsets = {
+        std::uint32_t{0},
+        std::nullopt,
+        std::uint32_t{32},
+        std::nullopt
+    };
+    std::vector<std::byte> routed_bytes(64, std::byte{0});
+    routed_bytes[20] = std::byte{2};
+    write_u16(routed_bytes, 21, 3);
+    write_u16(routed_bytes, 23, 7);
+    routed_bytes[25] = std::byte{0xe0};
+    routed_bytes[26] = std::byte{0xe3};
+    routed_bytes[52] = std::byte{1};
+    write_u16(routed_bytes, 53, 56);
+    routed_bytes[55] = std::byte{0xe6};
+
+    const auto routed =
+        contract::formats::decode_animation_track_directories(
+            routed_bytes,
+            routed_descriptor);
+    CONTRACT_EXPECT(routed.has_value());
+    if (routed.has_value()) {
+        CONTRACT_EXPECT_EQ(routed.value().size(), std::size_t{2});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].channel_slot,
+            std::uint8_t{0});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].encoded_size,
+            std::uint32_t{32});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].payload_offset,
+            std::uint32_t{27});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].tracks.size(),
+            std::size_t{2});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].tracks[0].track_id,
+            std::uint16_t{3});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[0].tracks[1].encoding,
+            std::uint8_t{0xe3});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[1].channel_slot,
+            std::uint8_t{2});
+        CONTRACT_EXPECT_EQ(
+            routed.value()[1].tracks[0].track_id,
+            std::uint16_t{56});
+    }
+
+    auto duplicate_track_bytes = routed_bytes;
+    write_u16(duplicate_track_bytes, 23, 3);
+    const auto duplicate_track =
+        contract::formats::decode_animation_track_directories(
+            duplicate_track_bytes,
+            routed_descriptor);
+    CONTRACT_EXPECT(!duplicate_track.has_value());
+    if (!duplicate_track.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            duplicate_track.error().code,
+            AnimationDatabaseDecodeErrorCode::invalid_clip);
+    }
+
+    auto truncated_directory_bytes = routed_bytes;
+    truncated_directory_bytes[52] = std::byte{5};
+    const auto truncated_directory =
+        contract::formats::decode_animation_track_directories(
+            truncated_directory_bytes,
+            routed_descriptor);
+    CONTRACT_EXPECT(!truncated_directory.has_value());
+    if (!truncated_directory.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            truncated_directory.error().code,
+            AnimationDatabaseDecodeErrorCode::invalid_clip);
+    }
+
+    const auto route_limited =
+        contract::formats::decode_animation_track_directories(
+            routed_bytes,
+            routed_descriptor,
+            2);
+    CONTRACT_EXPECT(!route_limited.has_value());
+    if (!route_limited.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            route_limited.error().code,
+            AnimationDatabaseDecodeErrorCode::limit_exceeded);
+    }
+
+    auto unsupported_encoding_bytes = routed_bytes;
+    unsupported_encoding_bytes[26] = std::byte{0xff};
+    const auto unsupported_encoding =
+        contract::formats::decode_animation_track_directories(
+            unsupported_encoding_bytes,
+            routed_descriptor);
+    CONTRACT_EXPECT(!unsupported_encoding.has_value());
+    if (!unsupported_encoding.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            unsupported_encoding.error().code,
+            AnimationDatabaseDecodeErrorCode::
+                unsupported_track_encoding);
     }
 
     return contract::test::finish();

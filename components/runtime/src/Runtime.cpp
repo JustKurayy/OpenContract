@@ -461,6 +461,11 @@ int run_runtime(
                 const auto log_clip =
                     [&output](
                         const mission::SourceCharacterAnimationClip& clip) {
+                        std::size_t routed_tracks = 0;
+                        for (const auto& channel : clip.channels) {
+                            routed_tracks +=
+                                channel.routed_track_count;
+                        }
                         output << "[runtime.source-mission] "
                                << clip.role
                                << " source clip "
@@ -473,7 +478,15 @@ int run_runtime(
                                << clip.track_count
                                << " tracks and "
                                << clip.encoded_size
-                               << " encoded bytes\n";
+                               << " encoded bytes across "
+                               << clip.channels.size()
+                               << " channel director"
+                               << (clip.channels.size() == 1U
+                                       ? "y"
+                                       : "ies")
+                               << " and "
+                               << routed_tracks
+                               << " routed tracks\n";
                     };
                 const auto& selected =
                     source_mission->character_animations.value();

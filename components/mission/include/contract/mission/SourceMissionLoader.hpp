@@ -43,6 +43,11 @@ struct SourceMissionLoadError {
     std::string message;
 };
 
+struct SourceCharacterAnimationChannel {
+    std::uint8_t slot{0};
+    std::size_t routed_track_count{0};
+};
+
 struct SourceCharacterAnimationClip {
     std::string role;
     std::string path;
@@ -51,6 +56,7 @@ struct SourceCharacterAnimationClip {
     std::uint16_t samples_per_second{0};
     std::uint16_t track_count{0};
     std::uint32_t encoded_size{0};
+    std::vector<SourceCharacterAnimationChannel> channels;
 };
 
 struct SourceCharacterAnimations {

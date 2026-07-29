@@ -202,7 +202,13 @@ public:
                     10,
                     20,
                     4,
-                    128
+                    128,
+                    {
+                        contract::mission::
+                            SourceCharacterAnimationChannel{0, 16},
+                        contract::mission::
+                            SourceCharacterAnimationChannel{3, 3}
+                    }
                 },
                 {
                     "walk",
@@ -211,7 +217,13 @@ public:
                     18,
                     25,
                     8,
-                    256
+                    256,
+                    {
+                        contract::mission::
+                            SourceCharacterAnimationChannel{0, 8},
+                        contract::mission::
+                            SourceCharacterAnimationChannel{2, 1}
+                    }
                 },
                 {
                     "sprint",
@@ -220,7 +232,11 @@ public:
                     15,
                     25,
                     8,
-                    320
+                    320,
+                    {
+                        contract::mission::
+                            SourceCharacterAnimationChannel{0, 8}
+                    }
                 }
             };
         return contract::core::Result<
@@ -467,15 +483,21 @@ int main() {
         std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
-            "idle source clip 2: 10 samples at 20 Hz") !=
+            "idle source clip 2: 10 samples at 20 Hz, 4 tracks and "
+            "128 encoded bytes across 2 channel directories and "
+            "19 routed tracks") !=
         std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
-            "walk source clip 0: 18 samples at 25 Hz") !=
+            "walk source clip 0: 18 samples at 25 Hz, 8 tracks and "
+            "256 encoded bytes across 2 channel directories and "
+            "9 routed tracks") !=
         std::string::npos);
     CONTRACT_EXPECT(
         source_output.str().find(
-            "sprint source clip 1: 15 samples at 25 Hz") !=
+            "sprint source clip 1: 15 samples at 25 Hz, 8 tracks and "
+            "320 encoded bytes across 1 channel directory and "
+            "8 routed tracks") !=
         std::string::npos);
     CONTRACT_EXPECT_EQ(filesystem.binary_read_calls, 0);
     CONTRACT_EXPECT(!diagnostics.diagnostics().empty());

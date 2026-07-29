@@ -20,6 +20,7 @@ enum class AnimationDatabaseDecodeErrorCode {
     invalid_path,
     invalid_database,
     invalid_clip,
+    unsupported_track_encoding,
     duplicate_path,
     duplicate_database,
     database_not_found,

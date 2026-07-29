@@ -2,6 +2,7 @@
 
 #include <contract/datasource/DataSource.hpp>
 #include <contract/formats/AnimationDatabaseDecoder.hpp>
+#include <contract/formats/AnimationTrackDirectory.hpp>
 #include <contract/formats/GmsSceneDecoder.hpp>
 #include <contract/formats/MaterialDatabaseDecoder.hpp>
 #include <contract/formats/PrimitiveContainer.hpp>
@@ -105,19 +106,58 @@ scene::RenderJointRole source_joint_role(
     return scene::RenderJointRole::unknown;
 }
 
-SourceCharacterAnimationClip source_animation_clip(
+core::Result<
+    SourceCharacterAnimationClip,
+    formats::AnimationDatabaseDecodeError>
+source_animation_clip(
     std::string role,
     std::string path,
-    const formats::AnimationClipDescriptor& descriptor) {
-    return {
-        std::move(role),
-        std::move(path),
-        descriptor.index,
-        descriptor.sample_count,
-        descriptor.samples_per_second,
-        descriptor.track_count,
-        descriptor.encoded_size
-    };
+    const formats::AnimationClipDescriptor& descriptor,
+    const formats::AnimationDatabaseIndex& index,
+    const datasource::IReadOnlyDataSource& source,
+    datasource::ReadBudget& budget) {
+    auto encoded = index.read_encoded_clip(
+        source,
+        descriptor,
+        budget);
+    if (!encoded.has_value()) {
+        return core::Result<
+            SourceCharacterAnimationClip,
+            formats::AnimationDatabaseDecodeError>::failure(
+            encoded.error());
+    }
+    auto directories =
+        formats::decode_animation_track_directories(
+            encoded.value(),
+            descriptor);
+    if (!directories.has_value()) {
+        return core::Result<
+            SourceCharacterAnimationClip,
+            formats::AnimationDatabaseDecodeError>::failure(
+            directories.error());
+    }
+    std::vector<SourceCharacterAnimationChannel> channels;
+    channels.reserve(directories.value().size());
+    for (const auto& directory : directories.value()) {
+        channels.push_back(
+            {
+                directory.channel_slot,
+                directory.tracks.size()
+            });
+    }
+    return core::Result<
+        SourceCharacterAnimationClip,
+        formats::AnimationDatabaseDecodeError>::success(
+        {
+            std::move(role),
+            std::move(path),
+            descriptor.index,
+            descriptor.sample_count,
+            descriptor.samples_per_second,
+            descriptor.track_count,
+            descriptor.encoded_size,
+            std::move(channels)
+        });
 }
 
 }
@@ -420,20 +460,53 @@ ReadOnlySourceMissionLoader::load(
             archive_path,
             "Source character animation selection failed: " + message);
     }
+    auto idle = source_animation_clip(
+        "idle",
+        std::string(idle_animation),
+        idle_clip.value(),
+        animations.value(),
+        animation_source,
+        animation_budget);
+    if (!idle.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::animation_decode_failed,
+            archive_path,
+            "Source character idle routing failed: " +
+                idle.error().message);
+    }
+    auto walk = source_animation_clip(
+        "walk",
+        std::string(walk_animation),
+        walk_clip.value(),
+        animations.value(),
+        animation_source,
+        animation_budget);
+    if (!walk.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::animation_decode_failed,
+            archive_path,
+            "Source character walk routing failed: " +
+                walk.error().message);
+    }
+    auto sprint = source_animation_clip(
+        "sprint",
+        std::string(sprint_animation),
+        sprint_clip.value(),
+        animations.value(),
+        animation_source,
+        animation_budget);
+    if (!sprint.has_value()) {
+        return failure(
+            SourceMissionLoadErrorCode::animation_decode_failed,
+            archive_path,
+            "Source character sprint routing failed: " +
+                sprint.error().message);
+    }
     SourceCharacterAnimations character_animations{
         animation_database,
-        source_animation_clip(
-            "idle",
-            std::string(idle_animation),
-            idle_clip.value()),
-        source_animation_clip(
-            "walk",
-            std::string(walk_animation),
-            walk_clip.value()),
-        source_animation_clip(
-            "sprint",
-            std::string(sprint_animation),
-            sprint_clip.value())
+        std::move(idle.value()),
+        std::move(walk.value()),
+        std::move(sprint.value())
     };
     const SourceSceneBuildResources resources{
         &materials.value(),
