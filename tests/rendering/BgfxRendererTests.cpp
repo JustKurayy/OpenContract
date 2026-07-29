@@ -1,6 +1,7 @@
 #include "TestSupport.hpp"
 
 #include <contract/rendering/BgfxRenderer.hpp>
+#include <contract/rendering/RenderBatchPolicy.hpp>
 #include <contract/rendering/SceneFraming.hpp>
 #include <contract/rendering/WireframeIndexBuilder.hpp>
 
@@ -12,6 +13,43 @@ int main() {
 
     rendering::BgfxRenderer renderer;
     CONTRACT_EXPECT(!renderer.initialized());
+
+    const std::array<scene::RenderBatch, 4> unordered_batches{
+        scene::RenderBatch{
+            .source_material_id = 10,
+            .blend_mode = scene::RenderBlendMode::alpha},
+        scene::RenderBatch{
+            .source_material_id = 11,
+            .layer = scene::RenderLayer::background},
+        scene::RenderBatch{
+            .source_material_id = 12},
+        scene::RenderBatch{
+            .source_material_id = 13,
+            .blend_mode = scene::RenderBlendMode::additive}
+    };
+    const auto ordered_batches =
+        rendering::order_render_batches(unordered_batches);
+    CONTRACT_EXPECT_EQ(
+        ordered_batches[0].source_material_id,
+        std::uint16_t{11});
+    CONTRACT_EXPECT_EQ(
+        ordered_batches[1].source_material_id,
+        std::uint16_t{12});
+    CONTRACT_EXPECT_EQ(
+        ordered_batches[2].source_material_id,
+        std::uint16_t{10});
+    CONTRACT_EXPECT_EQ(
+        ordered_batches[3].source_material_id,
+        std::uint16_t{13});
+    CONTRACT_EXPECT(
+        !rendering::render_batch_writes_depth(
+            ordered_batches[0]));
+    CONTRACT_EXPECT(
+        rendering::render_batch_writes_depth(
+            ordered_batches[1]));
+    CONTRACT_EXPECT(
+        !rendering::render_batch_writes_depth(
+            ordered_batches[2]));
 
     const std::array<std::uint32_t, 6> triangles{
         0, 1, 2,

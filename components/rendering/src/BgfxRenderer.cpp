@@ -1,5 +1,6 @@
 #include <contract/rendering/BgfxRenderer.hpp>
 #include <contract/rendering/ProceduralCharacter.hpp>
+#include <contract/rendering/RenderBatchPolicy.hpp>
 #include <contract/rendering/SceneFraming.hpp>
 #include <contract/rendering/WireframeIndexBuilder.hpp>
 #include <contract/runtime/PlayerController.hpp>
@@ -246,6 +247,7 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
         0x14171dff,
         1.0F,
         0);
+    bgfx::setViewMode(0, bgfx::ViewMode::Sequential);
 
     const auto vertex_shader = bgfx::createShader(
         bgfx::copy(
@@ -591,7 +593,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_scene(
     wireframe_index_buffer_handle_ =
         wireframe_indices_handle.idx;
     texture_handles_ = std::move(new_texture_handles);
-    batches_ = scene.batches;
+    batches_ = order_render_batches(scene.batches);
     if (batches_.empty()) {
         batches_.push_back(
             {
@@ -771,7 +773,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
     character_texture_handle_ = 0xffffU;
     character_texture_handles_ =
         std::move(new_texture_handles);
-    character_batches_ = scene.batches;
+    character_batches_ = order_render_batches(scene.batches);
     if (character_batches_.empty()) {
         character_batches_.push_back(
             {
@@ -879,6 +881,9 @@ core::Result<void, RendererError> BgfxRenderer::render(
         } else {
             for (const auto& batch : batches_) {
                 auto batch_state = render_state;
+                if (!render_batch_writes_depth(batch)) {
+                    batch_state &= ~BGFX_STATE_WRITE_Z;
+                }
                 if (batch.blend_mode ==
                     scene::RenderBlendMode::alpha) {
                     batch_state |= BGFX_STATE_BLEND_ALPHA;
@@ -968,6 +973,9 @@ core::Result<void, RendererError> BgfxRenderer::render(
             if (source_character_model_) {
                 for (const auto& batch : character_batches_) {
                     auto batch_state = base_state;
+                    if (!render_batch_writes_depth(batch)) {
+                        batch_state &= ~BGFX_STATE_WRITE_Z;
+                    }
                     if (batch.blend_mode ==
                         scene::RenderBlendMode::alpha) {
                         batch_state |= BGFX_STATE_BLEND_ALPHA;

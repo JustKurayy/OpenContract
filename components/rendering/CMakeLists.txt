@@ -35,6 +35,7 @@ add_library(contract-rendering-bgfx
     src/CharacterAnimation.cpp
     src/FreeCamera.cpp
     src/ProceduralCharacter.cpp
+    src/RenderBatchPolicy.cpp
     src/SceneFraming.cpp
     src/WireframeIndexBuilder.cpp)
 add_library(

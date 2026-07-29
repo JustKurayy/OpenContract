@@ -147,6 +147,10 @@ void apply_material_state(
     if (material == nullptr) {
         return;
     }
+    constexpr std::string_view background_prefix{"Backdrop/"};
+    if (material->name.starts_with(background_prefix)) {
+        batch.layer = scene::RenderLayer::background;
+    }
     switch (material->blend_mode) {
     case formats::MaterialBlendMode::opaque:
         batch.blend_mode = scene::RenderBlendMode::opaque;

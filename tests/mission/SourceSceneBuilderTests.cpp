@@ -160,6 +160,8 @@ int main() {
         materials.materials[index].material_id =
             static_cast<std::uint16_t>(index + 1U);
     }
+    materials.materials.back().name =
+        "Backdrop/Synthetic/Sky";
     materials.materials.back().diffuse_texture_id = 123;
     materials.materials.back().blend_enabled = true;
     materials.materials.back().blend_mode =
@@ -266,6 +268,9 @@ int main() {
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.batches[0].source_material_id,
             std::uint16_t{77});
+        CONTRACT_EXPECT_EQ(
+            nested.value().render_scene.batches[0].layer,
+            contract::scene::RenderLayer::background);
         CONTRACT_EXPECT_EQ(
             nested.value().render_scene.batches[0].blend_mode,
             contract::scene::RenderBlendMode::alpha);

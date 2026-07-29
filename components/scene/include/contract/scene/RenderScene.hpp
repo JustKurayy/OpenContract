@@ -43,6 +43,11 @@ enum class RenderCullMode {
     two_sided
 };
 
+enum class RenderLayer {
+    world,
+    background
+};
+
 struct RenderBatch {
     std::uint32_t first_index{0};
     std::uint32_t index_count{0};
@@ -52,6 +57,7 @@ struct RenderBatch {
     RenderCullMode cull_mode{RenderCullMode::unspecified};
     float opacity{1.0F};
     float alpha_reference{0.0F};
+    RenderLayer layer{RenderLayer::world};
 };
 
 struct RenderSkinning {
