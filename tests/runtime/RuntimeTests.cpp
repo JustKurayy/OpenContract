@@ -10,11 +10,13 @@
 #include <contract/runtime/RuntimeRunner.hpp>
 
 #include <cstdint>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -150,6 +152,63 @@ public:
     contract::runtime::RuntimeObservation final_observation;
 };
 
+class RecordingLoadingDisplay final
+    : public contract::runtime::IRuntimeLoadingDisplay {
+public:
+    contract::core::Result<
+        void,
+        contract::runtime::RuntimeLoadingDisplayError>
+    begin(std::string_view mission) override {
+        ++begin_calls;
+        selected_mission = mission;
+        return contract::core::Result<
+            void,
+            contract::runtime::RuntimeLoadingDisplayError>::success();
+    }
+
+    contract::core::Result<
+        void,
+        contract::runtime::RuntimeLoadingDisplayError>
+    update(
+        contract::runtime::RuntimeLoadingPhase phase) override {
+        phases.push_back(phase);
+        return contract::core::Result<
+            void,
+            contract::runtime::RuntimeLoadingDisplayError>::success();
+    }
+
+    contract::core::Result<
+        void,
+        contract::runtime::RuntimeLoadingDisplayError>
+    pump() override {
+        ++pump_calls;
+        return contract::core::Result<
+            void,
+            contract::runtime::RuntimeLoadingDisplayError>::success();
+    }
+
+    contract::core::Result<
+        void,
+        contract::runtime::RuntimeLoadingDisplayError>
+    complete() override {
+        ++complete_calls;
+        return contract::core::Result<
+            void,
+            contract::runtime::RuntimeLoadingDisplayError>::success();
+    }
+
+    void abort() noexcept override {
+        ++abort_calls;
+    }
+
+    std::size_t begin_calls{0};
+    std::size_t pump_calls{0};
+    std::size_t complete_calls{0};
+    std::size_t abort_calls{0};
+    std::string selected_mission;
+    std::vector<contract::runtime::RuntimeLoadingPhase> phases;
+};
+
 std::vector<contract::mission::SourceCharacterAnimationTrack>
 synthetic_animation_tracks(
     std::size_t count,
@@ -181,6 +240,20 @@ public:
         ++calls;
         selected_game_path = game_path;
         selected_mission = mission_id;
+        if (delay.count() > 0) {
+            std::this_thread::sleep_for(delay);
+        }
+        if (fail) {
+            return contract::core::Result<
+                contract::mission::SourceMissionLoadResult,
+                contract::mission::SourceMissionLoadError>::failure(
+                {
+                    contract::mission::SourceMissionLoadErrorCode::
+                        archive_invalid,
+                    game_path / "synthetic.zip",
+                    "Synthetic source mission failure"
+                });
+        }
         contract::scene::RenderScene scene;
         scene.vertices = {
             {0.0F, 0.0F, 0.0F},
@@ -312,6 +385,8 @@ public:
     mutable std::size_t calls{0};
     mutable std::filesystem::path selected_game_path;
     mutable std::string selected_mission;
+    bool fail{false};
+    std::chrono::milliseconds delay{0};
 };
 
 contract::modding::ModPackage package_with_mission(std::string mission_id) {
@@ -431,6 +506,7 @@ int main() {
         {{}, "levels", EntryType::directory, 0}};
     contract::diagnostics::DiagnosticBuffer diagnostics;
     RecordingRunner runner;
+    RecordingLoadingDisplay loading_display;
     SyntheticSourceMissionLoader source_loader;
     const RuntimeContext context{
         filesystem,
@@ -440,7 +516,8 @@ int main() {
         std::nullopt,
         {},
         &runner,
-        &source_loader};
+        &source_loader,
+        &loading_display};
 
     TemporaryDirectory temporary;
     const auto manifest_path = temporary.path() / "package.contract.json";
@@ -495,6 +572,7 @@ int main() {
         std::filesystem::path("C:/synthetic-install");
     source_runnable.source_mission = "M00";
     source_runnable.maximum_frames = std::uint64_t{1};
+    source_loader.delay = std::chrono::milliseconds{40};
     std::ostringstream source_output;
     std::ostringstream source_errors;
     const auto source_exit = contract::runtime::run_runtime(
@@ -508,6 +586,36 @@ int main() {
     CONTRACT_EXPECT(source_errors.str().empty());
     CONTRACT_EXPECT_EQ(source_loader.calls, std::size_t{1});
     CONTRACT_EXPECT_EQ(source_loader.selected_mission, std::string("M00"));
+    CONTRACT_EXPECT_EQ(
+        loading_display.begin_calls,
+        std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        loading_display.selected_mission,
+        std::string("M00"));
+    CONTRACT_EXPECT(loading_display.pump_calls > std::size_t{0});
+    CONTRACT_EXPECT_EQ(
+        loading_display.phases.size(),
+        std::size_t{3});
+    if (loading_display.phases.size() == 3U) {
+        CONTRACT_EXPECT_EQ(
+            loading_display.phases[0],
+            contract::runtime::RuntimeLoadingPhase::
+                source_data);
+        CONTRACT_EXPECT_EQ(
+            loading_display.phases[1],
+            contract::runtime::RuntimeLoadingPhase::
+                runtime_setup);
+        CONTRACT_EXPECT_EQ(
+            loading_display.phases[2],
+            contract::runtime::RuntimeLoadingPhase::
+                launching);
+    }
+    CONTRACT_EXPECT_EQ(
+        loading_display.complete_calls,
+        std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        loading_display.abort_calls,
+        std::size_t{0});
     CONTRACT_EXPECT_EQ(runner.render_vertex_count, std::size_t{3});
     CONTRACT_EXPECT_EQ(
         runner.collision_index_count,
@@ -583,6 +691,34 @@ int main() {
     CONTRACT_EXPECT_EQ(
         diagnostics.diagnostics().back().code,
         std::string("runtime.boot"));
+
+    source_loader.fail = true;
+    source_loader.delay = std::chrono::milliseconds{0};
+    std::ostringstream source_failure_output;
+    std::ostringstream source_failure_errors;
+    const auto source_failure_exit =
+        contract::runtime::run_runtime(
+            source_runnable,
+            context,
+            source_failure_output,
+            source_failure_errors);
+    CONTRACT_EXPECT_EQ(
+        source_failure_exit,
+        static_cast<int>(RuntimeExitCode::mission_invalid));
+    CONTRACT_EXPECT(
+        source_failure_errors.str().find(
+            "Synthetic source mission failure") !=
+        std::string::npos);
+    CONTRACT_EXPECT_EQ(
+        loading_display.begin_calls,
+        std::size_t{2});
+    CONTRACT_EXPECT_EQ(
+        loading_display.complete_calls,
+        std::size_t{1});
+    CONTRACT_EXPECT_EQ(
+        loading_display.abort_calls,
+        std::size_t{1});
+    source_loader.fail = false;
 
     runner.fail = true;
     std::ostringstream runner_output;

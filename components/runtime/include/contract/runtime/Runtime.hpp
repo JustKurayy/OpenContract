@@ -4,6 +4,7 @@
 #include <contract/filesystem/ReadOnlyFilesystem.hpp>
 #include <contract/installation/Installation.hpp>
 #include <contract/mission/SourceMissionLoader.hpp>
+#include <contract/runtime/RuntimeLoadingDisplay.hpp>
 #include <contract/runtime/RuntimeRunner.hpp>
 
 #include <cstdint>
@@ -33,6 +34,7 @@ struct RuntimeContext {
     std::vector<std::filesystem::path> probe_paths;
     IRuntimeRunner* runner{nullptr};
     const mission::ISourceMissionLoader* source_mission_loader{nullptr};
+    IRuntimeLoadingDisplay* loading_display{nullptr};
 };
 
 enum class RuntimeExitCode : int {

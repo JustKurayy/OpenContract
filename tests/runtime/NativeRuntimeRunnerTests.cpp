@@ -1,5 +1,6 @@
 #include "TestSupport.hpp"
 
+#include <contract/platform/NativeLoadingDisplay.hpp>
 #include <contract/platform/NativeRuntimeRunner.hpp>
 #include <contract/runtime/RuntimeHost.hpp>
 
@@ -44,6 +45,23 @@ contract::runtime::RuntimeHost make_host() {
 
 int main() {
     using namespace contract;
+
+    platform::NativeLoadingDisplay loading_display(
+        platform::NativeWindowVisibility::hidden);
+    const auto loading_started =
+        loading_display.begin("mission.synthetic");
+    CONTRACT_EXPECT(loading_started.has_value());
+    const auto loading_updated = loading_display.update(
+        runtime::RuntimeLoadingPhase::source_data);
+    CONTRACT_EXPECT(loading_updated.has_value());
+    const auto loading_pumped = loading_display.pump();
+    CONTRACT_EXPECT(loading_pumped.has_value());
+    const auto loading_completed = loading_display.complete();
+    CONTRACT_EXPECT(loading_completed.has_value());
+    const auto inactive_update = loading_display.update(
+        runtime::RuntimeLoadingPhase::launching);
+    CONTRACT_EXPECT(!inactive_update.has_value());
+    loading_display.abort();
 
     auto host = make_host();
     platform::NativeRuntimeRunner runner(

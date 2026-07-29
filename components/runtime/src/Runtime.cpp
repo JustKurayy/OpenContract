@@ -9,6 +9,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <future>
 #include <memory>
 #include <ostream>
 #include <string_view>
@@ -25,6 +26,81 @@ constexpr std::size_t initial_pending_command_limit = 1024;
 constexpr std::string_view source_player_id = "player.local";
 constexpr std::string_view source_objective_id = "objective.explore";
 constexpr float source_exploration_distance = 750.0F;
+
+class LoadingDisplaySession {
+public:
+    explicit LoadingDisplaySession(
+        IRuntimeLoadingDisplay* display) noexcept
+        : display_(display) {}
+
+    ~LoadingDisplaySession() {
+        if (active_) {
+            display_->abort();
+        }
+    }
+
+    LoadingDisplaySession(const LoadingDisplaySession&) = delete;
+    LoadingDisplaySession& operator=(
+        const LoadingDisplaySession&) = delete;
+
+    [[nodiscard]] core::Result<
+        void,
+        RuntimeLoadingDisplayError>
+    begin(std::string_view mission) {
+        if (display_ == nullptr) {
+            return core::Result<
+                void,
+                RuntimeLoadingDisplayError>::success();
+        }
+        auto result = display_->begin(mission);
+        active_ = result.has_value();
+        return result;
+    }
+
+    [[nodiscard]] core::Result<
+        void,
+        RuntimeLoadingDisplayError>
+    update(RuntimeLoadingPhase phase) {
+        if (!active_) {
+            return core::Result<
+                void,
+                RuntimeLoadingDisplayError>::success();
+        }
+        return display_->update(phase);
+    }
+
+    [[nodiscard]] core::Result<
+        void,
+        RuntimeLoadingDisplayError>
+    pump() {
+        if (!active_) {
+            return core::Result<
+                void,
+                RuntimeLoadingDisplayError>::success();
+        }
+        return display_->pump();
+    }
+
+    [[nodiscard]] core::Result<
+        void,
+        RuntimeLoadingDisplayError>
+    complete() {
+        if (!active_) {
+            return core::Result<
+                void,
+                RuntimeLoadingDisplayError>::success();
+        }
+        auto result = display_->complete();
+        if (result.has_value()) {
+            active_ = false;
+        }
+        return result;
+    }
+
+private:
+    IRuntimeLoadingDisplay* display_{nullptr};
+    bool active_{false};
+};
 
 }
 
@@ -142,6 +218,25 @@ int run_runtime(
         return static_cast<int>(RuntimeExitCode::installation_invalid);
     }
 
+    LoadingDisplaySession loading(context.loading_display);
+    const auto loading_failure =
+        [&context, &errors](
+            const RuntimeLoadingDisplayError& error) {
+            context.diagnostics.emit(
+                {
+                    diagnostics::Severity::error,
+                    "runtime.loading",
+                    error.message,
+                    std::nullopt,
+                    std::nullopt
+                });
+            errors << "[runtime.loading] "
+                   << error.message
+                   << '\n';
+            return static_cast<int>(
+                RuntimeExitCode::runtime_failed);
+        };
+
     std::optional<mission::SourceMissionLoadResult> source_mission;
     if (options.source_mission.has_value()) {
         if (context.source_mission_loader == nullptr) {
@@ -157,30 +252,76 @@ int run_runtime(
                 << "[runtime.source-mission] No source mission loader is configured\n";
             return static_cast<int>(RuntimeExitCode::mission_invalid);
         }
-        auto loaded = context.source_mission_loader->load(
-            report.canonical_path.value_or(report.requested_path),
-            *options.source_mission);
-        if (!loaded.has_value()) {
+        auto loading_result = loading.begin(*options.source_mission);
+        if (!loading_result.has_value()) {
+            return loading_failure(loading_result.error());
+        }
+        loading_result =
+            loading.update(RuntimeLoadingPhase::source_data);
+        if (!loading_result.has_value()) {
+            return loading_failure(loading_result.error());
+        }
+
+        const auto game_path =
+            report.canonical_path.value_or(report.requested_path);
+        auto load_source =
+            [&context, &game_path, &options]() {
+                return context.source_mission_loader->load(
+                    game_path,
+                    *options.source_mission);
+            };
+        using SourceLoadResult = core::Result<
+            mission::SourceMissionLoadResult,
+            mission::SourceMissionLoadError>;
+        std::optional<SourceLoadResult> loaded;
+        if (context.loading_display == nullptr) {
+            loaded = load_source();
+        } else {
+            auto future = std::async(
+                std::launch::async,
+                load_source);
+            std::optional<RuntimeLoadingDisplayError>
+                pump_error;
+            while (future.wait_for(
+                       std::chrono::milliseconds{16}) !=
+                   std::future_status::ready) {
+                loading_result = loading.pump();
+                if (!loading_result.has_value()) {
+                    pump_error = loading_result.error();
+                    break;
+                }
+            }
+            loaded = future.get();
+            if (pump_error.has_value()) {
+                return loading_failure(*pump_error);
+            }
+        }
+        if (!loaded->has_value()) {
             context.diagnostics.emit(
                 {
                     diagnostics::Severity::error,
                     "runtime.source-mission",
-                    loaded.error().message,
-                    loaded.error().path.empty()
+                    loaded->error().message,
+                    loaded->error().path.empty()
                         ? report.canonical_path
                         : std::optional<std::filesystem::path>{
-                              loaded.error().path},
+                              loaded->error().path},
                     std::nullopt
                 });
             errors << "[runtime.source-mission] "
-                   << loaded.error().message;
-            if (!loaded.error().path.empty()) {
-                errors << ": " << loaded.error().path.string();
+                   << loaded->error().message;
+            if (!loaded->error().path.empty()) {
+                errors << ": " << loaded->error().path.string();
             }
             errors << '\n';
             return static_cast<int>(RuntimeExitCode::mission_invalid);
         }
-        source_mission = std::move(loaded.value());
+        source_mission = std::move(loaded->value());
+        loading_result =
+            loading.update(RuntimeLoadingPhase::runtime_setup);
+        if (!loading_result.has_value()) {
+            return loading_failure(loading_result.error());
+        }
     }
 
     std::optional<modding::LoadedPackageSet> package_set;
@@ -532,6 +673,17 @@ int run_runtime(
                             animations.sprint.samples_per_second)
                 };
         }
+        if (source_mission.has_value()) {
+            auto loading_result =
+                loading.update(RuntimeLoadingPhase::launching);
+            if (!loading_result.has_value()) {
+                return loading_failure(loading_result.error());
+            }
+            loading_result = loading.complete();
+            if (!loading_result.has_value()) {
+                return loading_failure(loading_result.error());
+            }
+        }
         const auto run_result = context.runner->run(
             host,
             {
@@ -635,6 +787,7 @@ int run_runtime(
         installation::environment_game_path(),
         installation::configured_game_path(),
         installation::default_windows_probe_paths(),
+        nullptr,
         nullptr,
         nullptr};
     return run_runtime(options, context, output, errors);
