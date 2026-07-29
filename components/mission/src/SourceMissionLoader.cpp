@@ -566,7 +566,8 @@ ReadOnlySourceMissionLoader::load(
                     bone.name,
                     bone.parent_index,
                     source_joint_role(bone.name),
-                    bone.reference_position
+                    bone.reference_position,
+                    bone.reference_basis
                 });
         }
         for (const auto& skinning :

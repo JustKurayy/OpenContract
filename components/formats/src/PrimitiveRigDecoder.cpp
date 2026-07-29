@@ -20,6 +20,7 @@ constexpr std::size_t kBoneParentOffset = 12;
 constexpr std::size_t kBoneNameOffset = 28;
 constexpr std::size_t kBoneNameCapacity = 32;
 constexpr std::size_t kReferenceTransformSize = 48;
+constexpr std::size_t kReferenceBasisCount = 9;
 constexpr std::size_t kReferencePositionOffset = 36;
 
 core::Result<PrimitiveRig, PrimitiveRigDecodeError> failure(
@@ -305,16 +306,35 @@ PrimitiveRigDecoder::decode(
                 "Primitive rig bone name is empty or unterminated");
         }
         const auto reference_offset =
-            index * kReferenceTransformSize +
-            kReferencePositionOffset;
+            index * kReferenceTransformSize;
+        std::array<float, kReferenceBasisCount> reference_basis{};
+        for (std::size_t component = 0;
+             component < reference_basis.size();
+             ++component) {
+            reference_basis[component] = read_f32(
+                reference_bytes.value(),
+                reference_offset + component * sizeof(float));
+            if (!std::isfinite(reference_basis[component])) {
+                return failure(
+                    PrimitiveRigDecodeErrorCode::unsupported_layout,
+                    container.records()[reference_record].offset +
+                        reference_offset +
+                        component * sizeof(float),
+                    "Primitive rig reference basis is non-finite");
+            }
+        }
+        const auto reference_position_offset =
+            reference_offset + kReferencePositionOffset;
         const std::array<float, 3> reference_position{
-            read_f32(reference_bytes.value(), reference_offset),
             read_f32(
                 reference_bytes.value(),
-                reference_offset + 4U),
+                reference_position_offset),
             read_f32(
                 reference_bytes.value(),
-                reference_offset + 8U)
+                reference_position_offset + 4U),
+            read_f32(
+                reference_bytes.value(),
+                reference_position_offset + 8U)
         };
         if (!std::isfinite(reference_position[0]) ||
             !std::isfinite(reference_position[1]) ||
@@ -322,7 +342,7 @@ PrimitiveRigDecoder::decode(
             return failure(
                 PrimitiveRigDecodeErrorCode::unsupported_layout,
                 container.records()[reference_record].offset +
-                    reference_offset,
+                    reference_position_offset,
                 "Primitive rig reference position is non-finite");
         }
         rig.bones.push_back(
@@ -332,7 +352,8 @@ PrimitiveRigDecoder::decode(
                     ? std::nullopt
                     : std::optional<std::size_t>{
                           static_cast<std::size_t>(parent)},
-                reference_position
+                reference_position,
+                reference_basis
             });
     }
 

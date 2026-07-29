@@ -7,6 +7,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -98,6 +99,18 @@ std::vector<std::byte> make_rig_container(
     write_f32(bytes, offsets[2] + 36U, 0.0F);
     write_f32(bytes, offsets[2] + 40U, 0.0F);
     write_f32(bytes, offsets[2] + 44U, 0.0F);
+    write_f32(bytes, offsets[2], 1.0F);
+    write_f32(bytes, offsets[2] + 16U, 1.0F);
+    write_f32(bytes, offsets[2] + 32U, 1.0F);
+    write_f32(bytes, offsets[2] + 48U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 4U, -1.0F);
+    write_f32(bytes, offsets[2] + 48U + 8U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 12U, 1.0F);
+    write_f32(bytes, offsets[2] + 48U + 16U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 20U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 24U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 28U, 0.0F);
+    write_f32(bytes, offsets[2] + 48U + 32U, 1.0F);
     write_f32(bytes, offsets[2] + 48U + 36U, 0.0F);
     write_f32(bytes, offsets[2] + 48U + 40U, 100.0F);
     write_f32(bytes, offsets[2] + 48U + 44U, 5.0F);
@@ -168,6 +181,24 @@ int main() {
             CONTRACT_EXPECT_EQ(
                 rig.value().bones[1].reference_position[2],
                 5.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[0].reference_basis[0],
+                1.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[0].reference_basis[4],
+                1.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[0].reference_basis[8],
+                1.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[1].reference_basis[1],
+                -1.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[1].reference_basis[3],
+                1.0F);
+            CONTRACT_EXPECT_EQ(
+                rig.value().bones[1].reference_basis[8],
+                1.0F);
         }
     }
 
@@ -197,6 +228,38 @@ int main() {
                 invalid.error().code,
                 contract::formats::PrimitiveRigDecodeErrorCode::
                     invalid_hierarchy);
+        }
+    }
+
+    auto non_finite_basis_bytes = make_rig_container();
+    write_f32(
+        non_finite_basis_bytes,
+        16U + 128U,
+        std::numeric_limits<float>::quiet_NaN());
+    contract::datasource::MemoryDataSource non_finite_basis_source(
+        non_finite_basis_bytes);
+    contract::datasource::ReadBudget non_finite_index_budget(
+        4096,
+        64);
+    const auto non_finite_basis_container =
+        contract::formats::PrimitiveContainerIndex::read(
+            non_finite_basis_source,
+            non_finite_index_budget);
+    CONTRACT_EXPECT(non_finite_basis_container.has_value());
+    if (non_finite_basis_container.has_value()) {
+        contract::datasource::ReadBudget decode_budget(4096, 256);
+        const auto invalid =
+            contract::formats::PrimitiveRigDecoder::decode(
+                non_finite_basis_container.value(),
+                non_finite_basis_source,
+                5,
+                decode_budget);
+        CONTRACT_EXPECT(!invalid.has_value());
+        if (!invalid.has_value()) {
+            CONTRACT_EXPECT_EQ(
+                invalid.error().code,
+                contract::formats::PrimitiveRigDecodeErrorCode::
+                    unsupported_layout);
         }
     }
 

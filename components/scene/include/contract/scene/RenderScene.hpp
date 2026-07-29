@@ -91,6 +91,11 @@ struct RenderJoint {
     std::optional<std::size_t> parent_index;
     RenderJointRole role{RenderJointRole::unknown};
     std::array<float, 3> reference_position{0.0F, 0.0F, 0.0F};
+    std::array<float, 9> reference_basis{
+        1.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 1.0F
+    };
 };
 
 struct RenderSkeleton {
