@@ -1,6 +1,7 @@
 #pragma once
 
 #include <contract/core/Result.hpp>
+#include <contract/rendering/CharacterAnimation.hpp>
 #include <contract/rendering/FreeCamera.hpp>
 #include <contract/runtime/RuntimeObservation.hpp>
 #include <contract/scene/RenderScene.hpp>
@@ -55,7 +56,8 @@ public:
         const runtime::RuntimeObservation& observation,
         const FreeCameraInput& camera_input,
         float elapsed_seconds,
-        bool wireframe);
+        bool wireframe,
+        const CharacterAnimationState& character_animation = {});
 
     void shutdown() noexcept;
 
@@ -81,6 +83,7 @@ private:
     std::vector<std::uint16_t> character_texture_handles_;
     std::vector<scene::RenderBatch> batches_;
     std::vector<scene::RenderBatch> character_batches_;
+    std::vector<scene::RenderVertex> character_base_vertices_;
     std::uint32_t vertex_count_{0};
     std::uint32_t index_count_{0};
     std::uint32_t wireframe_index_count_{0};

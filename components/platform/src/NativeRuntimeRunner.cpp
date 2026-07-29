@@ -328,6 +328,7 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
     }
     const auto starting_tick = state.observation.completed_ticks;
     auto previous_time = std::chrono::steady_clock::now();
+    rendering::CharacterAnimator character_animator;
 
     while (!state.closed) {
         MSG message{};
@@ -366,13 +367,30 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
                 current_time - previous_time);
         previous_time = current_time;
         std::vector<runtime::RuntimeCommand> commands;
+        const auto current_player_input = player_input(state);
+        const auto elapsed_seconds = (std::max)(
+            std::chrono::duration<float>(elapsed).count(),
+            0.000001F);
+        auto animation_updated = character_animator.update(
+            {
+                current_player_input.forward,
+                current_player_input.right,
+                current_player_input.sprint
+            },
+            elapsed_seconds);
+        if (!animation_updated.has_value()) {
+            renderer.shutdown();
+            if (IsWindow(window) != FALSE) {
+                static_cast<void>(DestroyWindow(window));
+            }
+            return platform_failure(
+                animation_updated.error().message);
+        }
         if (player_controller.has_value()) {
             const auto movement = player_controller->update(
                 state.observation,
-                player_input(state),
-                (std::max)(
-                    std::chrono::duration<float>(elapsed).count(),
-                    0.000001F));
+                current_player_input,
+                elapsed_seconds);
             if (!movement.has_value()) {
                 renderer.shutdown();
                 if (IsWindow(window) != FALSE) {
@@ -402,7 +420,8 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             state.observation,
             camera_input(state),
             std::chrono::duration<float>(elapsed).count(),
-            state.wireframe);
+            state.wireframe,
+            character_animator.state());
         if (!rendered.has_value()) {
             renderer.shutdown();
             static_cast<void>(DestroyWindow(window));

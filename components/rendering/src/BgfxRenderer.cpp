@@ -136,6 +136,11 @@ bgfx::VertexBufferHandle vertex_buffer_handle(std::uint16_t index) {
     return {index};
 }
 
+bgfx::DynamicVertexBufferHandle dynamic_vertex_buffer_handle(
+    std::uint16_t index) {
+    return {index};
+}
+
 bgfx::IndexBufferHandle index_buffer_handle(std::uint16_t index) {
     return {index};
 }
@@ -312,7 +317,8 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
 
     const auto character = create_procedural_character();
     const auto character_vertices = gpu_vertices(character.vertices);
-    const auto character_vertex_buffer = bgfx::createVertexBuffer(
+    const auto character_vertex_buffer =
+        bgfx::createDynamicVertexBuffer(
         bgfx::copy(
             character_vertices.data(),
             static_cast<std::uint32_t>(
@@ -362,6 +368,7 @@ core::Result<void, RendererError> BgfxRenderer::initialize(
     character_texture_handle_ = character_texture.idx;
     character_index_count_ =
         static_cast<std::uint32_t>(character.indices.size());
+    character_base_vertices_ = character.vertices;
     return core::Result<void, RendererError>::success();
 }
 
@@ -684,7 +691,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
             RendererErrorCode::invalid_scene,
             "Player model buffer size exceeds bgfx limits");
     }
-    const auto vertices = bgfx::createVertexBuffer(
+    const auto vertices = bgfx::createDynamicVertexBuffer(
         bgfx::copy(
             converted_vertices.data(),
             static_cast<std::uint32_t>(vertex_bytes)),
@@ -736,7 +743,8 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
 
     if (character_vertex_buffer_handle_ != 0xffffU) {
         bgfx::destroy(
-            vertex_buffer_handle(character_vertex_buffer_handle_));
+            dynamic_vertex_buffer_handle(
+                character_vertex_buffer_handle_));
     }
     if (character_index_buffer_handle_ != 0xffffU) {
         bgfx::destroy(
@@ -766,6 +774,7 @@ core::Result<void, RendererError> BgfxRenderer::upload_player_model(
     }
     character_index_count_ =
         static_cast<std::uint32_t>(scene.indices.size());
+    character_base_vertices_ = scene.vertices;
     source_character_model_ = true;
     return core::Result<void, RendererError>::success();
 }
@@ -774,7 +783,8 @@ core::Result<void, RendererError> BgfxRenderer::render(
     const runtime::RuntimeObservation& observation,
     const FreeCameraInput& camera_input,
     float elapsed_seconds,
-    bool wireframe) {
+    bool wireframe,
+    const CharacterAnimationState& character_animation) {
     if (!initialized_) {
         return renderer_failure(
             RendererErrorCode::not_initialized,
@@ -904,6 +914,32 @@ core::Result<void, RendererError> BgfxRenderer::render(
             character_index_buffer_handle_ != 0xffffU &&
             (source_character_model_ ||
              character_texture_handle_ != 0xffffU)) {
+            auto posed = animate_character(
+                character_base_vertices_,
+                character_animation);
+            if (!posed.has_value()) {
+                return renderer_failure(
+                    RendererErrorCode::invalid_scene,
+                    posed.error().message);
+            }
+            const auto posed_vertices =
+                gpu_vertices(posed.value());
+            if (posed_vertices.size() >
+                std::numeric_limits<std::uint32_t>::max() /
+                    sizeof(GpuVertex)) {
+                return renderer_failure(
+                    RendererErrorCode::invalid_scene,
+                    "Animated player model exceeds bgfx buffer limits");
+            }
+            bgfx::update(
+                dynamic_vertex_buffer_handle(
+                    character_vertex_buffer_handle_),
+                0,
+                bgfx::copy(
+                    posed_vertices.data(),
+                    static_cast<std::uint32_t>(
+                        posed_vertices.size() *
+                        sizeof(GpuVertex))));
             const auto transform = model_transform(player->transform);
             const auto base_state =
                 BGFX_STATE_WRITE_RGB |
@@ -934,7 +970,7 @@ core::Result<void, RendererError> BgfxRenderer::render(
                     bgfx::setTransform(transform.data());
                     bgfx::setVertexBuffer(
                         0,
-                        vertex_buffer_handle(
+                        dynamic_vertex_buffer_handle(
                             character_vertex_buffer_handle_));
                     bgfx::setIndexBuffer(
                         index_buffer_handle(
@@ -963,7 +999,7 @@ core::Result<void, RendererError> BgfxRenderer::render(
                 bgfx::setTransform(transform.data());
                 bgfx::setVertexBuffer(
                     0,
-                    vertex_buffer_handle(
+                    dynamic_vertex_buffer_handle(
                         character_vertex_buffer_handle_));
                 bgfx::setIndexBuffer(
                     index_buffer_handle(
@@ -1050,6 +1086,13 @@ core::Result<void, RendererError> BgfxRenderer::render(
             : "active");
     bgfx::dbgTextPrintf(
         3,
+        14,
+        0x0b,
+        "Character sequence: %s",
+        character_sequence_name(
+            character_animation.sequence).data());
+    bgfx::dbgTextPrintf(
+        3,
         10,
         0x0f,
         "Geometry: %u vertices, %u indices",
@@ -1072,14 +1115,14 @@ core::Result<void, RendererError> BgfxRenderer::render(
         camera_.position().z);
     bgfx::dbgTextPrintf(
         3,
-        14,
+        15,
         0x08,
         displayed_player != nullptr
             ? "WASD move character, arrows orbit, Shift sprints."
             : "WASD move, Q/E down/up, arrows look, Shift boosts.");
     bgfx::dbgTextPrintf(
         3,
-        15,
+        16,
         0x08,
         "F1 toggles %s view. Escape exits.",
         wireframe ? "solid" : "wireframe");
@@ -1103,7 +1146,8 @@ void BgfxRenderer::shutdown() noexcept {
     }
     if (character_vertex_buffer_handle_ != 0xffffU) {
         bgfx::destroy(
-            vertex_buffer_handle(character_vertex_buffer_handle_));
+            dynamic_vertex_buffer_handle(
+                character_vertex_buffer_handle_));
     }
     if (character_index_buffer_handle_ != 0xffffU) {
         bgfx::destroy(
@@ -1149,6 +1193,7 @@ void BgfxRenderer::shutdown() noexcept {
     character_texture_handles_.clear();
     batches_.clear();
     character_batches_.clear();
+    character_base_vertices_.clear();
     vertex_count_ = 0;
     index_count_ = 0;
     wireframe_index_count_ = 0;

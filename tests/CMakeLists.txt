@@ -176,6 +176,13 @@ target_link_libraries(
     PRIVATE OpenContract::rendering-bgfx)
 
 contract_add_test(
+    contract-character-animation-tests
+    rendering/CharacterAnimationTests.cpp)
+target_link_libraries(
+    contract-character-animation-tests
+    PRIVATE OpenContract::rendering-bgfx)
+
+contract_add_test(
     contract-free-camera-tests
     rendering/FreeCameraTests.cpp)
 target_link_libraries(

@@ -32,6 +32,7 @@ add_library(contract-rendering-bgfx
     ${contract_vertex_shader}
     ${contract_fragment_shader}
     src/BgfxRenderer.cpp
+    src/CharacterAnimation.cpp
     src/FreeCamera.cpp
     src/ProceduralCharacter.cpp
     src/SceneFraming.cpp

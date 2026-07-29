@@ -1,5 +1,6 @@
 #include <contract/formats/PrimitiveSceneDecoder.hpp>
 
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -13,6 +14,42 @@ constexpr std::size_t kModelRecordSize = 64;
 constexpr std::size_t kObjectRecordMinimumSize = 44;
 constexpr std::size_t kMeshDescriptorSize = 16;
 constexpr std::size_t kIndexHeaderSize = 4;
+constexpr std::size_t kVertexRecordAlignment = 16;
+
+std::optional<std::size_t> vertex_stride(
+    std::size_t record_size,
+    std::size_t vertex_count) {
+    constexpr std::array<std::size_t, 4> supported{
+        16U,
+        36U,
+        40U,
+        52U
+    };
+    std::optional<std::size_t> matched;
+    for (const auto stride : supported) {
+        if (vertex_count >
+            std::numeric_limits<std::size_t>::max() / stride) {
+            continue;
+        }
+        const auto required = vertex_count * stride;
+        if (required >
+            std::numeric_limits<std::size_t>::max() -
+                (kVertexRecordAlignment - 1U)) {
+            continue;
+        }
+        const auto aligned =
+            (required + kVertexRecordAlignment - 1U) &
+            ~(kVertexRecordAlignment - 1U);
+        if (record_size != required && record_size != aligned) {
+            continue;
+        }
+        if (matched.has_value()) {
+            return std::nullopt;
+        }
+        matched = stride;
+    }
+    return matched;
+}
 
 std::uint16_t read_u16(
     const std::vector<std::byte>& bytes,
@@ -192,21 +229,22 @@ decode_object(
             PrimitiveSceneDecodeError>::failure(
             indices.error());
     }
-    if (indices.value().size() < kIndexHeaderSize ||
-        vertices.value().size() % vertex_count != 0) {
+    if (indices.value().size() < kIndexHeaderSize) {
         return core::Result<
             std::optional<PrimitiveMesh>,
             PrimitiveSceneDecodeError>::success(
             std::nullopt);
     }
 
-    const auto stride = vertices.value().size() / vertex_count;
-    if (stride != 16 && stride != 36 && stride != 40 && stride != 52) {
+    const auto detected_stride =
+        vertex_stride(vertices.value().size(), vertex_count);
+    if (!detected_stride.has_value()) {
         return core::Result<
             std::optional<PrimitiveMesh>,
             PrimitiveSceneDecodeError>::success(
             std::nullopt);
     }
+    const auto stride = detected_stride.value();
     const auto index_count = read_u16(indices.value(), 2);
     if (index_count == 0 ||
         index_count > limits.max_indices_per_mesh ||

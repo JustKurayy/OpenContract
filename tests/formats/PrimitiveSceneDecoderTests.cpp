@@ -39,11 +39,12 @@ void write_f32(
 
 std::vector<std::byte> make_scene_container(
     bool invalid_index,
-    bool primary_lod = true) {
+    bool primary_lod = true,
+    bool aligned_vertex_padding = false) {
     const std::vector<std::size_t> sizes{
         16,
         16,
-        120,
+        aligned_vertex_padding ? 128U : 120U,
         16,
         16,
         64,
@@ -223,6 +224,38 @@ int main() {
                 secondary_lod_source,
                 secondary_lod_decode_budget);
         CONTRACT_EXPECT(!secondary_lod.has_value());
+    }
+
+    const auto padded_bytes =
+        make_scene_container(false, true, true);
+    contract::datasource::MemoryDataSource padded_source(
+        padded_bytes);
+    contract::datasource::ReadBudget padded_index_budget(
+        4096,
+        256);
+    const auto padded_container =
+        contract::formats::PrimitiveContainerIndex::read(
+            padded_source,
+            padded_index_budget);
+    CONTRACT_EXPECT(padded_container.has_value());
+    if (padded_container.has_value()) {
+        contract::datasource::ReadBudget padded_decode_budget(
+            4096,
+            256);
+        const auto padded =
+            contract::formats::PrimitiveSceneDecoder::decode(
+                padded_container.value(),
+                padded_source,
+                padded_decode_budget);
+        CONTRACT_EXPECT(padded.has_value());
+        if (padded.has_value()) {
+            CONTRACT_EXPECT_EQ(
+                padded.value().meshes[0].vertex_stride,
+                std::uint32_t{40});
+            CONTRACT_EXPECT_EQ(
+                padded.value().meshes[0].positions.size(),
+                std::size_t{3});
+        }
     }
 
     return contract::test::finish();
