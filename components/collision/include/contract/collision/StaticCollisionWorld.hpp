@@ -5,8 +5,10 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace contract::collision {
@@ -82,6 +84,11 @@ private:
     explicit StaticCollisionWorld(std::vector<Triangle> triangles);
 
     std::vector<Triangle> triangles_;
+    std::unordered_map<
+        std::uint64_t,
+        std::vector<std::size_t>>
+        triangles_by_cell_;
+    std::vector<std::size_t> global_triangles_;
 };
 
 }

@@ -123,6 +123,21 @@ int main() {
             wall_blocked.value().position[0],
             0.0F));
 
+        const auto wall_slid =
+            world.value().resolve_grounded_motion(
+                {0.0F, 0.0F, 0.0F},
+                {20.0F, 0.0F, 8.0F},
+                config);
+        CONTRACT_EXPECT(wall_slid.has_value());
+        CONTRACT_EXPECT(wall_slid.value().blocked);
+        CONTRACT_EXPECT(wall_slid.value().grounded);
+        CONTRACT_EXPECT(near(
+            wall_slid.value().position[0],
+            0.0F));
+        CONTRACT_EXPECT(near(
+            wall_slid.value().position[2],
+            8.0F));
+
         const auto no_ground =
             world.value().resolve_grounded_motion(
                 {0.0F, 0.0F, 0.0F},
