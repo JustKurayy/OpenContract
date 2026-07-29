@@ -574,6 +574,10 @@ SourceSceneBuilder::build(
                 ++result.overlay_meshes;
                 continue;
             }
+            if (material != nullptr && material->name == "Bad") {
+                ++result.suppressed_placeholder_meshes;
+                continue;
+            }
             auto& target_scene =
                 character_members[index]
                     ? player_model

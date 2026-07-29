@@ -551,8 +551,10 @@ int run_runtime(
                    << source_mission->collision_scene.indices.size() / 3U
                    << " query triangles, "
                    << source_mission->overlay_meshes
-                   << " overlay meshes and "
-                    << source_mission->suppressed_dynamic_placements
+                   << " overlay meshes, "
+                   << source_mission->suppressed_placeholder_meshes
+                   << " invalid placeholder meshes, and "
+                   << source_mission->suppressed_dynamic_placements
                    << " unsupported dynamic character "
                    << "attachments suppressed, "
                    << source_mission->texture_count

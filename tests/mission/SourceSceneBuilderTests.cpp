@@ -173,6 +173,7 @@ int main() {
     materials.materials.back().alpha_reference = 127;
     materials.materials[1].collision_only = true;
     materials.materials[2].overlay_only = true;
+    materials.materials[3].name = "Bad";
     contract::formats::TextureDatabase textures;
     textures.textures.push_back(
         {
@@ -197,6 +198,8 @@ int main() {
     collision_mesh.indices = {0, 1, 2, 0, 0, 1};
     auto overlay_mesh = mesh;
     overlay_mesh.material_id = 3;
+    auto placeholder_mesh = mesh;
+    placeholder_mesh.material_id = 4;
     auto character_mesh = mesh;
     character_mesh.model_record = 43;
     character_mesh.skinning = {
@@ -208,6 +211,7 @@ int main() {
         mesh,
         collision_mesh,
         overlay_mesh,
+        placeholder_mesh,
         character_mesh
     };
     constexpr std::string_view preferred_spawn_nodes[]{
@@ -249,6 +253,9 @@ int main() {
             std::size_t{1});
         CONTRACT_EXPECT_EQ(
             nested.value().overlay_meshes,
+            std::size_t{1});
+        CONTRACT_EXPECT_EQ(
+            nested.value().suppressed_placeholder_meshes,
             std::size_t{1});
         CONTRACT_EXPECT_EQ(
             nested.value().suppressed_dynamic_placements,

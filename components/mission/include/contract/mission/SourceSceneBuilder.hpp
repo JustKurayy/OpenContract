@@ -66,6 +66,7 @@ struct SourceSceneBuildResult {
     std::size_t collision_meshes{0};
     std::size_t walkable_render_triangles{0};
     std::size_t overlay_meshes{0};
+    std::size_t suppressed_placeholder_meshes{0};
     std::size_t suppressed_dynamic_placements{0};
 };
 

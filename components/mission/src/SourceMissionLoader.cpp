@@ -689,6 +689,8 @@ ReadOnlySourceMissionLoader::load(
         placed_scene.value().walkable_render_triangles;
     result.overlay_meshes =
         placed_scene.value().overlay_meshes;
+    result.suppressed_placeholder_meshes =
+        placed_scene.value().suppressed_placeholder_meshes;
     result.suppressed_dynamic_placements =
         placed_scene.value().suppressed_dynamic_placements;
     result.texture_count = texture_count;
