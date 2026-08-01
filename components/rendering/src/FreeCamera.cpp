@@ -9,6 +9,10 @@ namespace {
 constexpr float kMaximumPitch = 1.553343F;
 constexpr float kLookSpeed = 1.5F;
 
+float finite_delta(float value) noexcept {
+    return std::isfinite(value) ? value : 0.0F;
+}
+
 }
 
 float advance_camera_yaw(
@@ -105,11 +109,13 @@ void FreeCamera::orbit_subject(
         yaw_ = advance_camera_yaw(
             yaw_,
             input.yaw,
-            elapsed_seconds);
+            elapsed_seconds) +
+            finite_delta(input.yaw_delta);
         pitch_ = std::clamp(
             pitch_ +
                 std::clamp(input.pitch, -1.0F, 1.0F) *
-                    kLookSpeed * step,
+                    kLookSpeed * step +
+                finite_delta(input.pitch_delta),
             -kMaximumPitch,
             kMaximumPitch);
     }
@@ -132,11 +138,13 @@ void FreeCamera::update(
     yaw_ = advance_camera_yaw(
         yaw_,
         input.yaw,
-        elapsed_seconds);
+        elapsed_seconds) +
+        finite_delta(input.yaw_delta);
     pitch_ = std::clamp(
         pitch_ +
             std::clamp(input.pitch, -1.0F, 1.0F) *
-                kLookSpeed * step,
+                kLookSpeed * step +
+            finite_delta(input.pitch_delta),
         -kMaximumPitch,
         kMaximumPitch);
 

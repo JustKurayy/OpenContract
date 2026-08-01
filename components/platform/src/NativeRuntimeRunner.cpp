@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -35,6 +36,7 @@ core::Result<void, runtime::RuntimeRunnerError> platform_failure(
 constexpr wchar_t runtime_window_class[] =
     L"OpenContractRuntimeWindow";
 constexpr WORD arrow_cursor_resource_id{32512};
+constexpr float pointer_look_radians_per_pixel{0.004F};
 
 std::wstring widen_ascii(std::string_view value) {
     std::wstring converted;
@@ -54,6 +56,11 @@ struct WindowState {
     bool closed{false};
     bool resized{false};
     bool wireframe{false};
+    bool pointer_look_active{false};
+    std::int32_t pointer_x{0};
+    std::int32_t pointer_y{0};
+    float pointer_yaw_delta{0.0F};
+    float pointer_pitch_delta{0.0F};
     std::array<bool, 256> keys{};
 };
 
@@ -108,9 +115,54 @@ LRESULT CALLBACK runtime_window_proc(
             state->keys[word] = false;
         }
         return 0;
+    case WM_RBUTTONDOWN:
+        if (state != nullptr) {
+            state->pointer_look_active = true;
+            state->pointer_x = static_cast<std::int32_t>(
+                static_cast<short>(LOWORD(data)));
+            state->pointer_y = static_cast<std::int32_t>(
+                static_cast<short>(HIWORD(data)));
+            static_cast<void>(SetCapture(window));
+        }
+        return 0;
+    case WM_RBUTTONUP:
+        if (state != nullptr) {
+            state->pointer_look_active = false;
+        }
+        if (GetCapture() == window) {
+            static_cast<void>(ReleaseCapture());
+        }
+        return 0;
+    case WM_MOUSEMOVE:
+        if (state != nullptr && state->pointer_look_active) {
+            const auto x = static_cast<std::int32_t>(
+                static_cast<short>(LOWORD(data)));
+            const auto y = static_cast<std::int32_t>(
+                static_cast<short>(HIWORD(data)));
+            state->pointer_yaw_delta +=
+                static_cast<float>(x - state->pointer_x) *
+                pointer_look_radians_per_pixel;
+            state->pointer_pitch_delta -=
+                static_cast<float>(y - state->pointer_y) *
+                pointer_look_radians_per_pixel;
+            state->pointer_x = x;
+            state->pointer_y = y;
+        }
+        return 0;
+    case WM_CAPTURECHANGED:
+        if (state != nullptr) {
+            state->pointer_look_active = false;
+        }
+        return 0;
     case WM_KILLFOCUS:
         if (state != nullptr) {
             state->keys.fill(false);
+            state->pointer_look_active = false;
+            state->pointer_yaw_delta = 0.0F;
+            state->pointer_pitch_delta = 0.0F;
+        }
+        if (GetCapture() == window) {
+            static_cast<void>(ReleaseCapture());
         }
         return 0;
     case WM_SIZE:
@@ -141,7 +193,7 @@ bool key_down(
 }
 
 rendering::FreeCameraInput camera_input(
-    const WindowState& state) {
+    WindowState& state) {
     rendering::FreeCameraInput input;
     input.forward =
         (key_down(state, 'W') ? 1.0F : 0.0F) -
@@ -158,6 +210,10 @@ rendering::FreeCameraInput camera_input(
     input.pitch =
         (key_down(state, VK_UP) ? 1.0F : 0.0F) -
         (key_down(state, VK_DOWN) ? 1.0F : 0.0F);
+    input.yaw_delta = state.pointer_yaw_delta;
+    input.pitch_delta = state.pointer_pitch_delta;
+    state.pointer_yaw_delta = 0.0F;
+    state.pointer_pitch_delta = 0.0F;
     input.fast =
         key_down(state, VK_SHIFT);
     return input;
@@ -407,6 +463,9 @@ core::Result<void, runtime::RuntimeRunnerError> NativeRuntimeRunner::run(
             player_camera_yaw,
             current_camera_input.yaw,
             elapsed_seconds);
+        if (std::isfinite(current_camera_input.yaw_delta)) {
+            player_camera_yaw += current_camera_input.yaw_delta;
+        }
         current_player_input.heading_radians =
             player_camera_yaw;
         auto animation_updated = character_animator.update(

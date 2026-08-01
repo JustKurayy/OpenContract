@@ -16,6 +16,8 @@ struct FreeCameraInput {
     float up{0.0F};
     float yaw{0.0F};
     float pitch{0.0F};
+    float yaw_delta{0.0F};
+    float pitch_delta{0.0F};
     bool fast{false};
 };
 

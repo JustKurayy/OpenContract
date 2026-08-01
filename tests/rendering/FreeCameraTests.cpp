@@ -3,6 +3,7 @@
 #include <contract/rendering/FreeCamera.hpp>
 
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -54,6 +55,32 @@ int main() {
         contract::rendering::camera_yaw_from_rotation(
             {0.0F, 0.70710677F, 0.0F, 0.70710677F});
     CONTRACT_EXPECT(near(source_yaw, 1.5707963F));
+
+    contract::rendering::FreeCamera pointer_camera;
+    pointer_camera.frame_subject(
+        {0.0F, 0.0F, 0.0F},
+        100.0F);
+    contract::rendering::FreeCameraInput pointer_look;
+    pointer_look.yaw_delta = 0.5F;
+    pointer_look.pitch_delta = 0.25F;
+    pointer_camera.orbit_subject(
+        {0.0F, 0.0F, 0.0F},
+        pointer_look,
+        0.001F);
+    CONTRACT_EXPECT(near(pointer_camera.yaw(), 0.5F));
+    CONTRACT_EXPECT(near(pointer_camera.pitch(), 0.0F));
+
+    contract::rendering::FreeCameraInput invalid_pointer_look;
+    invalid_pointer_look.yaw_delta =
+        std::numeric_limits<float>::infinity();
+    invalid_pointer_look.pitch_delta =
+        std::numeric_limits<float>::quiet_NaN();
+    pointer_camera.orbit_subject(
+        {0.0F, 0.0F, 0.0F},
+        invalid_pointer_look,
+        0.001F);
+    CONTRACT_EXPECT(near(pointer_camera.yaw(), 0.5F));
+    CONTRACT_EXPECT(near(pointer_camera.pitch(), 0.0F));
 
     contract::rendering::FreeCamera follow;
     follow.frame_subject(

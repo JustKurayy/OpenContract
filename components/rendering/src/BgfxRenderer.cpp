@@ -1151,8 +1151,8 @@ core::Result<void, RendererError> BgfxRenderer::render(
         15,
         0x08,
         displayed_player != nullptr
-            ? "WASD move character, arrows orbit, Shift sprints."
-            : "WASD move, Q/E down/up, arrows look, Shift boosts.");
+            ? "WASD move, right-drag/arrows orbit, Shift sprints."
+            : "WASD move, Q/E down/up, right-drag/arrows look.");
     bgfx::dbgTextPrintf(
         3,
         16,
