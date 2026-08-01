@@ -1,5 +1,5 @@
 # OpenContract
-I've been playing Hitman: Blood Money for a while & love the game, but the lack of moddabiltiy kinda hurts me and I wished there was a way to add more levels or items etc. So I vibecoded this since I'm not a game engine dev. This project has been made by GPT-5.6 Sol (High) over several hours of development. This project is just a fun test. Not affiliated with anything, just a standalone project to see how far agentic agents can reverse engineer old games to "remaster" them & make them moddable.
+I've been playing Hitman: Blood Money for a while & love the game, but the lack of moddabilty kinda hurts me and I wished there was a way to add more levels or items etc. So I vibecoded this since I'm not a game engine dev. This project has been made by GPT-5.6 Sol (High) over several hours of development. This project is just a fun test. Not affiliated with anything, just a standalone project to see how far agentic agents can reverse engineer old games to "remaster" them & make them moddable.
 
 What does this project contain?
 ---------------------------------
@@ -18,3 +18,11 @@ Here's a list of missions that are currently bootable.
 How can I contribute?
 ----------------------
 If you want to vibecode this further, use models like GPT-5.6 Sol/Terra, Fable 5, Opus 4.8/5, GLM-5.2 or Kimi-K3 (aka just use the big agentic models).
+
+Shoutouts
+----------
+Huge thanks to these repos. (Nothing was copied, but these repos were used as study material for better understanding of reverse engineering games)
+- https://github.com/ReGlacier/ReHitman
+- https://github.com/ReGlacier/BMEdit
+- https://github.com/pavledev/GlacierTEXEditor
+- https://github.com/OpenMW/openmw
