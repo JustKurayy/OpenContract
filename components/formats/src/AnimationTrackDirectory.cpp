@@ -160,8 +160,35 @@ decode_animation_track_directories(
         const auto end = index + 1U < references.size()
             ? static_cast<std::size_t>(references[index + 1U].offset)
             : encoded_clip.size();
-        if (end < start ||
-            end - start < kLeadingByteCount + kTrackCountSize) {
+        if (end <= start) {
+            return failure(
+                AnimationDatabaseDecodeErrorCode::invalid_clip,
+                start,
+                "Animation channel directory is truncated");
+        }
+
+        const auto preserve_opaque_channel = [&]() {
+            AnimationChannelDirectory directory;
+            directory.channel_mask = references[index].mask;
+            directory.encoded_offset =
+                static_cast<std::uint32_t>(start);
+            directory.encoded_size =
+                static_cast<std::uint32_t>(end - start);
+            directory.payload_offset =
+                static_cast<std::uint32_t>(start);
+            directory.layout =
+                AnimationChannelLayout::opaque_payload;
+            directory.encoded_value_bytes.assign(
+                encoded_clip.begin() + start,
+                encoded_clip.begin() + end);
+            directories.push_back(std::move(directory));
+        };
+
+        if (end - start < kLeadingByteCount + kTrackCountSize) {
+            if (references[index].mask == 0x08U) {
+                preserve_opaque_channel();
+                continue;
+            }
             return failure(
                 AnimationDatabaseDecodeErrorCode::invalid_clip,
                 start,
@@ -191,6 +218,10 @@ decode_animation_track_directories(
             kLeadingByteCount + kTrackCountSize +
             track_count_size * (kTrackIdSize + kEncodingSize);
         if (directory_size > end - start) {
+            if (references[index].mask == 0x08U) {
+                preserve_opaque_channel();
+                continue;
+            }
             return failure(
                 AnimationDatabaseDecodeErrorCode::invalid_clip,
                 start + kLeadingByteCount,

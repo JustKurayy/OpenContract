@@ -501,6 +501,82 @@ int main() {
             AnimationDatabaseDecodeErrorCode::limit_exceeded);
     }
 
+    auto short_channel_descriptor = routed_descriptor;
+    short_channel_descriptor.encoded_size = 48;
+    short_channel_descriptor.channel_offsets = {
+        std::uint32_t{0},
+        std::nullopt,
+        std::nullopt,
+        std::uint32_t{32}
+    };
+    std::vector<std::byte> short_channel_bytes(
+        48,
+        std::byte{0});
+    short_channel_bytes[20] = std::byte{1};
+    write_u16(short_channel_bytes, 21, 3);
+    short_channel_bytes[23] = std::byte{0xe3};
+    short_channel_bytes[24] = std::byte{0x44};
+    short_channel_bytes[32] = std::byte{0x51};
+    short_channel_bytes[47] = std::byte{0x52};
+    const auto short_channel =
+        contract::formats::decode_animation_track_directories(
+            short_channel_bytes,
+            short_channel_descriptor);
+    CONTRACT_EXPECT(short_channel.has_value());
+    if (short_channel.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            short_channel.value().size(),
+            std::size_t{2});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].channel_mask,
+            std::uint8_t{0x08});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].encoded_size,
+            std::uint32_t{16});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].payload_offset,
+            std::uint32_t{32});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].layout,
+            contract::formats::AnimationChannelLayout::opaque_payload);
+        CONTRACT_EXPECT(short_channel.value()[1].tracks.empty());
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].encoded_value_bytes.size(),
+            std::size_t{16});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].encoded_value_bytes.front(),
+            std::byte{0x51});
+        CONTRACT_EXPECT_EQ(
+            short_channel.value()[1].encoded_value_bytes.back(),
+            std::byte{0x52});
+    }
+
+    auto alternate_channel_descriptor = short_channel_descriptor;
+    alternate_channel_descriptor.encoded_size = 56;
+    std::vector<std::byte> alternate_channel_bytes(
+        56,
+        std::byte{0});
+    alternate_channel_bytes[20] = std::byte{1};
+    write_u16(alternate_channel_bytes, 21, 3);
+    alternate_channel_bytes[23] = std::byte{0xe3};
+    alternate_channel_bytes[52] = std::byte{3};
+    const auto alternate_channel =
+        contract::formats::decode_animation_track_directories(
+            alternate_channel_bytes,
+            alternate_channel_descriptor);
+    CONTRACT_EXPECT(alternate_channel.has_value());
+    if (alternate_channel.has_value()) {
+        CONTRACT_EXPECT_EQ(
+            alternate_channel.value().size(),
+            std::size_t{2});
+        CONTRACT_EXPECT_EQ(
+            alternate_channel.value()[1].layout,
+            contract::formats::AnimationChannelLayout::opaque_payload);
+        CONTRACT_EXPECT_EQ(
+            alternate_channel.value()[1].encoded_value_bytes.size(),
+            std::size_t{24});
+    }
+
     auto unsupported_encoding_bytes = routed_bytes;
     unsupported_encoding_bytes[26] = std::byte{0xff};
     const auto unsupported_encoding =

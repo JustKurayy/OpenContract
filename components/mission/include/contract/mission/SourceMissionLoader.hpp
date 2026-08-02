@@ -49,10 +49,17 @@ struct SourceCharacterAnimationTrack {
     std::uint8_t encoding{0};
 };
 
+enum class SourceCharacterAnimationChannelLayout {
+    routed_tracks,
+    opaque_payload
+};
+
 struct SourceCharacterAnimationChannel {
     std::uint8_t channel_mask{0};
     std::vector<SourceCharacterAnimationTrack> tracks;
     std::vector<std::byte> encoded_value_bytes;
+    SourceCharacterAnimationChannelLayout layout{
+        SourceCharacterAnimationChannelLayout::routed_tracks};
 };
 
 struct SourceCharacterAnimationClip {

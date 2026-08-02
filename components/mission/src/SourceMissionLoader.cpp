@@ -152,7 +152,11 @@ source_animation_clip(
             {
                 directory.channel_mask,
                 std::move(tracks),
-                std::move(directory.encoded_value_bytes)
+                std::move(directory.encoded_value_bytes),
+                directory.layout ==
+                        formats::AnimationChannelLayout::routed_tracks
+                    ? SourceCharacterAnimationChannelLayout::routed_tracks
+                    : SourceCharacterAnimationChannelLayout::opaque_payload
             });
     }
     return core::Result<
